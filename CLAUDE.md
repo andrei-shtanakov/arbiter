@@ -41,24 +41,25 @@ Decision flow: `task JSON → 22-dim feature vector → Decision Tree → ranked
 
 ```
 arbiter/
-├── Cargo.toml                    # Workspace: arbiter-core, arbiter-mcp, arbiter-server, arbiter-cli
-├── arbiter-core/                 # Shared library (DT inference, invariants, types, metrics)
+├── Cargo.toml                    # Workspace: arbiter-core, arbiter-mcp, arbiter-cli
+├── arbiter-core/                 # Shared library (DT inference, invariants, types)
 │   └── src/
+│       ├── lib.rs                # Crate root, module declarations
 │       ├── types.rs              # AgentFeatureVector (22-dim), AgentAction, AgentState
 │       ├── policy/
+│       │   ├── mod.rs            # Policy module
 │       │   ├── decision_tree.rs  # Native DT inference (sklearn JSON → tree traversal)
-│       │   ├── onnx.rs           # ONNX backend (feature-gated)
 │       │   └── engine.rs         # Policy Engine: evaluate_for_agents()
-│       ├── invariant/
-│       │   └── rules.rs          # 10 safety rules, Critical/Warning severity
-│       ├── registry/
-│       │   └── lifecycle.rs      # AgentState FSM (active/inactive/busy/failed)
-│       └── metrics.rs            # Atomic counters, Prometheus
+│       └── invariant/
+│           ├── mod.rs            # Invariant module
+│           └── rules.rs          # 10 safety rules, Critical/Warning severity
 ├── arbiter-mcp/                  # MCP Server binary (the main deliverable)
 │   └── src/
 │       ├── main.rs               # Entry: args, init tree + SQLite + config, stdio loop
+│       ├── lib.rs                # Crate root, module declarations
 │       ├── server.rs             # JSON-RPC 2.0 dispatch (initialize, tools/list, tools/call)
 │       ├── tools/
+│       │   ├── mod.rs            # Tools module
 │       │   ├── route_task.rs     # Primary: task → agent decision
 │       │   ├── report_outcome.rs # Feedback: task result → stats update
 │       │   └── agent_status.rs   # Query: agent capabilities + performance
@@ -66,7 +67,6 @@ arbiter/
 │       ├── agents.rs             # Agent registry (TOML config + SQLite stats)
 │       ├── db.rs                 # SQLite schema, migrations, queries
 │       └── config.rs             # TOML config loader (agents.toml, invariants.toml)
-├── arbiter-server/               # HTTP API (Axum) — legacy from AI-OS PoC, not MVP priority
 ├── arbiter-cli/                  # CLI for smoke tests and benchmarks
 ├── config/
 │   ├── agents.toml               # Agent definitions (capabilities, costs, concurrency)
@@ -74,7 +74,6 @@ arbiter/
 ├── models/
 │   └── agent_policy_tree.json    # Bootstrap decision tree (sklearn export)
 ├── scripts/
-│   ├── export_sklearn_tree.py    # Generic sklearn → Arbiter JSON converter
 │   └── bootstrap_agent_tree.py   # Expert rules → training data → tree → JSON
 └── orchestrator/                 # Python MCP client
     ├── arbiter_client.py         # ArbiterClient class (subprocess + JSON-RPC)
@@ -184,14 +183,11 @@ uv run pytest orchestrator/tests/
    - Dependencies: scikit-learn, numpy
    - Output: `models/agent_policy_tree.json`
 
-2. **`scripts/export_sklearn_tree.py`** — generic sklearn tree → Arbiter JSON converter
-   - Already exists from AI-OS PoC
-
-3. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
+2. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
    - Pure stdlib: asyncio, json, subprocess
    - No external dependencies
 
-4. **`orchestrator/tests/test_arbiter_integration.py`** — end-to-end MCP protocol tests
+3. **`orchestrator/tests/test_arbiter_integration.py`** — end-to-end MCP protocol tests
    - Dependencies: pytest, pytest-asyncio
 
 ### Python Coding Standards
