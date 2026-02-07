@@ -1,0 +1,17 @@
+[budget]
+threshold_usd = 10.0
+
+[retries]
+max_retries = 3
+
+[rate_limit]
+calls_per_minute = 60
+
+[agent_health]
+max_failures_24h = 5
+
+[concurrency]
+max_total_concurrent = 5
+
+[sla]
+buffer_multiplier = 1.5

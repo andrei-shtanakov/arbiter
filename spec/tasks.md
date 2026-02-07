@@ -37,21 +37,21 @@
 ## Testing Tasks (required)
 
 ### TASK-100: Test Infrastructure Setup
-🔴 P0 | 🔄 IN_PROGRESS | Est: 1d
+🔴 P0 | ✅ DONE | Est: 1d
 
 **Description:**
 Set up Cargo workspace, crate structure, and test infrastructure.
 Create empty crates with correct dependencies.
 
 **Checklist:**
-- [ ] Cargo.toml workspace with members: arbiter-core, arbiter-mcp, arbiter-cli
-- [ ] arbiter-core/Cargo.toml with workspace dependencies
-- [ ] arbiter-mcp/Cargo.toml with workspace dependencies + rusqlite, toml
-- [ ] arbiter-cli/Cargo.toml
-- [ ] Minimal lib.rs / main.rs for compilation
-- [ ] `cargo build` passes
-- [ ] `cargo test` passes (empty tests)
-- [ ] `cargo clippy -- -D warnings` clean
+- [x] Cargo.toml workspace with members: arbiter-core, arbiter-mcp, arbiter-cli
+- [x] arbiter-core/Cargo.toml with workspace dependencies
+- [x] arbiter-mcp/Cargo.toml with workspace dependencies + rusqlite, toml
+- [x] arbiter-cli/Cargo.toml
+- [x] Minimal lib.rs / main.rs for compilation
+- [x] `cargo build` passes
+- [x] `cargo test` passes (empty tests)
+- [x] `cargo clippy -- -D warnings` clean
 
 **Traces to:** [NFR-000]
 **Depends on:** —
@@ -62,25 +62,25 @@ Create empty crates with correct dependencies.
 ## Milestone 1: MVP
 
 ### TASK-001: Core Types and Data Structures
-🔴 P0 | ⬜ TODO | Est: 1d
+🔴 P0 | ✅ DONE | Est: 1d
 
 **Description:**
 Define all core data types in arbiter-core: AgentFeatureVector,
 AgentAction, AgentState, InvariantResult, Severity, PredictionResult.
 
 **Checklist:**
-- [ ] `types.rs`: AgentAction enum (Assign, Reject, Fallback)
-- [ ] `types.rs`: AgentState enum (Active, Inactive, Busy, Failed)
-- [ ] `types.rs`: Severity enum (Critical, Warning)
-- [ ] `types.rs`: InvariantResult struct
-- [ ] `types.rs`: TaskInput, Constraints, RunningTask structs
-- [ ] `types.rs`: PredictionResult struct (class, confidence, path)
-- [ ] Serde Serialize/Deserialize for all types
-- [ ] Unit tests for serialization round-trip
+- [x] `types.rs`: AgentAction enum (Assign, Reject, Fallback)
+- [x] `types.rs`: AgentState enum (Active, Inactive, Busy, Failed)
+- [x] `types.rs`: Severity enum (Critical, Warning)
+- [x] `types.rs`: InvariantResult struct
+- [x] `types.rs`: TaskInput, Constraints, RunningTask structs
+- [x] `types.rs`: PredictionResult struct (class, confidence, path)
+- [x] Serde Serialize/Deserialize for all types
+- [x] Unit tests for serialization round-trip
 
 **Tests (Definition of Done):**
-- [ ] Unit tests: all types serialize/deserialize correctly
-- [ ] Unit tests: enum variants match expected strings
+- [x] Unit tests: all types serialize/deserialize correctly
+- [x] Unit tests: enum variants match expected strings
 
 **Traces to:** [REQ-010], [REQ-050]
 **Depends on:** [TASK-100]
@@ -89,31 +89,31 @@ AgentAction, AgentState, InvariantResult, Severity, PredictionResult.
 ---
 
 ### TASK-002: MCP Server Shell and Config Loader
-🔴 P0 | ⬜ TODO | Est: 2d
+🔴 P0 | ✅ DONE | Est: 2d
 
 **Description:**
 Implement MCP server skeleton: main.rs with CLI args, JSON-RPC 2.0 stdio loop,
 initialize/initialized/tools-list handlers. Config loader for agents.toml and invariants.toml.
 
 **Checklist:**
-- [ ] `main.rs`: CLI argument parsing (--tree, --config, --db, --log-level)
-- [ ] `main.rs`: tracing-subscriber init (stderr only)
-- [ ] `server.rs`: JSON-RPC 2.0 message parsing (stdin line-by-line)
-- [ ] `server.rs`: handle_initialize -> capabilities response
-- [ ] `server.rs`: handle_initialized notification
-- [ ] `server.rs`: handle_tools_list -> 3 tool schemas
-- [ ] `server.rs`: handle_tools_call dispatch
-- [ ] `server.rs`: error -32601 for unknown methods
-- [ ] `server.rs`: error -32602 for invalid params
-- [ ] `server.rs`: graceful shutdown on stdin EOF
-- [ ] `config.rs`: parse agents.toml -> AgentConfig structs
-- [ ] `config.rs`: parse invariants.toml -> InvariantConfig struct
-- [ ] `config.rs`: error on missing config file
-- [ ] `config.rs`: error on missing required fields
+- [x] `main.rs`: CLI argument parsing (--tree, --config, --db, --log-level)
+- [x] `main.rs`: tracing-subscriber init (stderr only)
+- [x] `server.rs`: JSON-RPC 2.0 message parsing (stdin line-by-line)
+- [x] `server.rs`: handle_initialize -> capabilities response
+- [x] `server.rs`: handle_initialized notification
+- [x] `server.rs`: handle_tools_list -> 3 tool schemas
+- [x] `server.rs`: handle_tools_call dispatch
+- [x] `server.rs`: error -32601 for unknown methods
+- [x] `server.rs`: error -32602 for invalid params
+- [x] `server.rs`: graceful shutdown on stdin EOF
+- [x] `config.rs`: parse agents.toml -> AgentConfig structs
+- [x] `config.rs`: parse invariants.toml -> InvariantConfig struct
+- [x] `config.rs`: error on missing config file
+- [x] `config.rs`: error on missing required fields
 
 **Tests (Definition of Done):**
-- [ ] Unit tests: config parsing valid TOML (UT-19)
-- [ ] Unit tests: config parsing missing field error (UT-20)
+- [x] Unit tests: config parsing valid TOML (UT-19)
+- [x] Unit tests: config parsing missing field error (UT-20)
 
 **Traces to:** [REQ-001], [REQ-002], [REQ-070], [REQ-071]
 **Depends on:** [TASK-100]
@@ -122,29 +122,29 @@ initialize/initialized/tools-list handlers. Config loader for agents.toml and in
 ---
 
 ### TASK-003: Decision Tree Loader and Bootstrap Script
-🔴 P0 | ⬜ TODO | Est: 2d
+🔴 P0 | ✅ DONE | Est: 2d
 
 **Description:**
 Implement Decision Tree loading from JSON in arbiter-core (adapted from AI-OS PoC).
 Write Python script for bootstrap tree generation from expert rules.
 
 **Checklist:**
-- [ ] `policy/decision_tree.rs`: DecisionTree::from_json() sklearn JSON parsing
-- [ ] `policy/decision_tree.rs`: DecisionTree::predict() tree traversal
-- [ ] `policy/decision_tree.rs`: PredictionResult with decision_path
-- [ ] `policy/engine.rs`: evaluate_for_agents() multi-agent evaluation
-- [ ] `scripts/bootstrap_agent_tree.py`: 10 expert rules -> ~500 training examples
-- [ ] `scripts/bootstrap_agent_tree.py`: noise injection for robustness
-- [ ] `scripts/bootstrap_agent_tree.py`: DecisionTreeClassifier(max_depth=7)
-- [ ] `scripts/bootstrap_agent_tree.py`: export to Arbiter JSON format
-- [ ] `scripts/bootstrap_agent_tree.py`: accuracy report + confusion matrix
-- [ ] `models/agent_policy_tree.json`: generated bootstrap tree
+- [x] `policy/decision_tree.rs`: DecisionTree::from_json() sklearn JSON parsing
+- [x] `policy/decision_tree.rs`: DecisionTree::predict() tree traversal
+- [x] `policy/decision_tree.rs`: PredictionResult with decision_path
+- [x] `policy/engine.rs`: evaluate_for_agents() multi-agent evaluation
+- [x] `scripts/bootstrap_agent_tree.py`: 10 expert rules -> ~500 training examples
+- [x] `scripts/bootstrap_agent_tree.py`: noise injection for robustness
+- [x] `scripts/bootstrap_agent_tree.py`: DecisionTreeClassifier(max_depth=7)
+- [x] `scripts/bootstrap_agent_tree.py`: export to Arbiter JSON format
+- [x] `scripts/bootstrap_agent_tree.py`: accuracy report + confusion matrix
+- [x] `models/agent_policy_tree.json`: generated bootstrap tree
 
 **Tests (Definition of Done):**
-- [ ] Unit tests: bootstrap tree determinism (UT-21)
-- [ ] Unit tests: all agents filtered -> reject (UT-22)
-- [ ] Bootstrap tree accuracy > 95%
-- [ ] Tree depth <= 7, nodes <= 127
+- [x] Unit tests: bootstrap tree determinism (UT-21)
+- [x] Unit tests: all agents filtered -> reject (UT-22)
+- [x] Bootstrap tree accuracy > 95%
+- [x] Tree depth <= 7, nodes <= 127
 
 **Traces to:** [REQ-060], [REQ-061]
 **Depends on:** [TASK-100]
@@ -153,30 +153,30 @@ Write Python script for bootstrap tree generation from expert rules.
 ---
 
 ### TASK-004: route_task Tool Implementation
-🔴 P0 | ⬜ TODO | Est: 3d
+🔴 P0 | ✅ DONE | Est: 3d
 
 **Description:**
 Implement full route_task pipeline: validate input, build feature vectors,
 run DT inference, check invariants, cascade fallback, log to SQLite.
 
 **Checklist:**
-- [ ] `tools/route_task.rs`: input validation against schema
-- [ ] `tools/route_task.rs`: load agent states from registry
-- [ ] `tools/route_task.rs`: filter by hard constraints (type, lang, slots, exclude)
-- [ ] `tools/route_task.rs`: build feature vectors per candidate
-- [ ] `tools/route_task.rs`: run DT inference and rank
-- [ ] `tools/route_task.rs`: preferred_agent confidence boost (+0.1)
-- [ ] `tools/route_task.rs`: run invariant checks
-- [ ] `tools/route_task.rs`: cascade fallback on critical failure (max 2)
-- [ ] `tools/route_task.rs`: log decision to SQLite
-- [ ] `tools/route_task.rs`: increment running_tasks
-- [ ] `tools/route_task.rs`: return full decision with audit trail
+- [x] `tools/route_task.rs`: input validation against schema
+- [x] `tools/route_task.rs`: load agent states from registry
+- [x] `tools/route_task.rs`: filter by hard constraints (type, lang, slots, exclude)
+- [x] `tools/route_task.rs`: build feature vectors per candidate
+- [x] `tools/route_task.rs`: run DT inference and rank
+- [x] `tools/route_task.rs`: preferred_agent confidence boost (+0.1)
+- [x] `tools/route_task.rs`: run invariant checks
+- [x] `tools/route_task.rs`: cascade fallback on critical failure (max 2)
+- [x] `tools/route_task.rs`: log decision to SQLite
+- [x] `tools/route_task.rs`: increment running_tasks
+- [x] `tools/route_task.rs`: return full decision with audit trail
 
 **Tests (Definition of Done):**
-- [ ] Integration test: happy path route -> assign (IT-01)
-- [ ] Integration test: fallback on scope conflict (IT-02)
-- [ ] Integration test: all rejected (IT-03)
-- [ ] Integration test: cold start (IT-04)
+- [x] Integration test: happy path route -> assign (IT-01)
+- [x] Integration test: fallback on scope conflict (IT-02)
+- [x] Integration test: all rejected (IT-03)
+- [x] Integration test: cold start (IT-04)
 
 **Traces to:** [REQ-010], [REQ-011], [REQ-012], [REQ-013]
 **Depends on:** [TASK-001], [TASK-002], [TASK-003], [TASK-005], [TASK-006], [TASK-009]
@@ -185,29 +185,29 @@ run DT inference, check invariants, cascade fallback, log to SQLite.
 ---
 
 ### TASK-005: Feature Vector Builder
-🔴 P0 | ⬜ TODO | Est: 1d
+🔴 P0 | ✅ DONE | Est: 1d
 
 **Description:**
 Implement conversion of task JSON + agent stats + system state into 22-dim float vector.
 All encoding, capping, defaults per spec.
 
 **Checklist:**
-- [ ] `features.rs`: task_type ordinal encoding (7 values)
-- [ ] `features.rs`: language ordinal encoding (6 values)
-- [ ] `features.rs`: complexity, priority ordinal encoding
-- [ ] `features.rs`: scope_size, estimated_tokens capping
-- [ ] `features.rs`: boolean features (has_dependencies, requires_internet)
-- [ ] `features.rs`: agent stats features (success_rate, duration, cost, failures)
-- [ ] `features.rs`: agent capability features (supports_type, supports_lang)
-- [ ] `features.rs`: system features (total_running, pending, budget, time, conflicts)
-- [ ] `features.rs`: default values for missing optional fields
-- [ ] `features.rs`: build_feature_vector() function
+- [x] `features.rs`: task_type ordinal encoding (7 values)
+- [x] `features.rs`: language ordinal encoding (6 values)
+- [x] `features.rs`: complexity, priority ordinal encoding
+- [x] `features.rs`: scope_size, estimated_tokens capping
+- [x] `features.rs`: boolean features (has_dependencies, requires_internet)
+- [x] `features.rs`: agent stats features (success_rate, duration, cost, failures)
+- [x] `features.rs`: agent capability features (supports_type, supports_lang)
+- [x] `features.rs`: system features (total_running, pending, budget, time, conflicts)
+- [x] `features.rs`: default values for missing optional fields
+- [x] `features.rs`: build_feature_vector() function
 
 **Tests (Definition of Done):**
-- [ ] Unit tests: full task -> 22-dim vector (UT-01)
-- [ ] Unit tests: minimal task -> defaults (UT-02)
-- [ ] Unit tests: unknown type encoding (UT-03)
-- [ ] All values in documented ranges
+- [x] Unit tests: full task -> 22-dim vector (UT-01)
+- [x] Unit tests: minimal task -> defaults (UT-02)
+- [x] Unit tests: unknown type encoding (UT-03)
+- [x] All values in documented ranges
 
 **Traces to:** [REQ-040]
 **Depends on:** [TASK-001]
@@ -216,36 +216,36 @@ All encoding, capping, defaults per spec.
 ---
 
 ### TASK-006: Invariant Rules Implementation
-🔴 P0 | ⬜ TODO | Est: 2d
+🔴 P0 | ✅ DONE | Est: 2d
 
 **Description:**
 Implement 10 invariant rules in arbiter-core. 4 Critical (block + fallback)
 and 6 Warning (log + allow). Full scope, branch, concurrency, budget checks.
 
 **Checklist:**
-- [ ] `invariant/rules.rs`: agent_available (Critical)
-- [ ] `invariant/rules.rs`: scope_isolation (Critical) — file/directory overlap check
-- [ ] `invariant/rules.rs`: branch_not_locked (Critical) — exact match
-- [ ] `invariant/rules.rs`: concurrency_limit (Critical) — total < max
-- [ ] `invariant/rules.rs`: budget_remaining (Warning)
-- [ ] `invariant/rules.rs`: retry_limit (Warning)
-- [ ] `invariant/rules.rs`: rate_limit (Warning)
-- [ ] `invariant/rules.rs`: agent_health (Warning)
-- [ ] `invariant/rules.rs`: task_compatible (Warning)
-- [ ] `invariant/rules.rs`: sla_feasible (Warning)
-- [ ] `invariant/rules.rs`: check_all_invariants() returns all 10 results
+- [x] `invariant/rules.rs`: agent_available (Critical)
+- [x] `invariant/rules.rs`: scope_isolation (Critical) — file/directory overlap check
+- [x] `invariant/rules.rs`: branch_not_locked (Critical) — exact match
+- [x] `invariant/rules.rs`: concurrency_limit (Critical) — total < max
+- [x] `invariant/rules.rs`: budget_remaining (Warning)
+- [x] `invariant/rules.rs`: retry_limit (Warning)
+- [x] `invariant/rules.rs`: rate_limit (Warning)
+- [x] `invariant/rules.rs`: agent_health (Warning)
+- [x] `invariant/rules.rs`: task_compatible (Warning)
+- [x] `invariant/rules.rs`: sla_feasible (Warning)
+- [x] `invariant/rules.rs`: check_all_invariants() returns all 10 results
 
 **Tests (Definition of Done):**
-- [ ] Unit tests: scope_isolation overlap (UT-04)
-- [ ] Unit tests: scope_isolation no overlap (UT-05)
-- [ ] Unit tests: scope_isolation directory contains file (UT-06)
-- [ ] Unit tests: concurrency at limit (UT-07)
-- [ ] Unit tests: concurrency below limit (UT-08)
-- [ ] Unit tests: budget exceeded (UT-09)
-- [ ] Unit tests: budget ok (UT-10)
-- [ ] Unit tests: branch locked (UT-11)
-- [ ] Unit tests: agent health failures (UT-12)
-- [ ] Total check time < 1ms
+- [x] Unit tests: scope_isolation overlap (UT-04)
+- [x] Unit tests: scope_isolation no overlap (UT-05)
+- [x] Unit tests: scope_isolation directory contains file (UT-06)
+- [x] Unit tests: concurrency at limit (UT-07)
+- [x] Unit tests: concurrency below limit (UT-08)
+- [x] Unit tests: budget exceeded (UT-09)
+- [x] Unit tests: budget ok (UT-10)
+- [x] Unit tests: branch locked (UT-11)
+- [x] Unit tests: agent health failures (UT-12)
+- [x] Total check time < 1ms
 
 **Traces to:** [REQ-050]
 **Depends on:** [TASK-001]
@@ -254,26 +254,26 @@ and 6 Warning (log + allow). Full scope, branch, concurrency, budget checks.
 ---
 
 ### TASK-007: report_outcome Tool Implementation
-🔴 P0 | ⬜ TODO | Est: 1-2d
+🔴 P0 | ✅ DONE | Est: 1-2d
 
 **Description:**
 Implement report_outcome tool: validate input, find decision, insert outcome,
 update agent_stats, decrement running_tasks, check health.
 
 **Checklist:**
-- [ ] `tools/report_outcome.rs`: input validation
-- [ ] `tools/report_outcome.rs`: find decision by task_id
-- [ ] `tools/report_outcome.rs`: insert outcome into outcomes table
-- [ ] `tools/report_outcome.rs`: update agent_stats aggregates
-- [ ] `tools/report_outcome.rs`: decrement running_tasks (clamp >= 0)
-- [ ] `tools/report_outcome.rs`: check failures_24h > threshold -> retrain_suggested
-- [ ] `tools/report_outcome.rs`: handle unknown task_id (decision_id=NULL, warning)
-- [ ] `tools/report_outcome.rs`: return updated_stats + retrain_suggested
+- [x] `tools/report_outcome.rs`: input validation
+- [x] `tools/report_outcome.rs`: find decision by task_id
+- [x] `tools/report_outcome.rs`: insert outcome into outcomes table
+- [x] `tools/report_outcome.rs`: update agent_stats aggregates
+- [x] `tools/report_outcome.rs`: decrement running_tasks (clamp >= 0)
+- [x] `tools/report_outcome.rs`: check failures_24h > threshold -> retrain_suggested
+- [x] `tools/report_outcome.rs`: handle unknown task_id (decision_id=NULL, warning)
+- [x] `tools/report_outcome.rs`: return updated_stats + retrain_suggested
 
 **Tests (Definition of Done):**
-- [ ] Integration test: stats accumulation 10x (IT-05)
-- [ ] Integration test: agent failure detection (IT-06)
-- [ ] Unit tests: running_tasks clamp to 0 (UT-15)
+- [x] Integration test: stats accumulation 10x (IT-05)
+- [x] Integration test: agent failure detection (IT-06)
+- [x] Unit tests: running_tasks clamp to 0 (UT-15)
 
 **Traces to:** [REQ-020], [REQ-021], [REQ-022]
 **Depends on:** [TASK-002], [TASK-009]
@@ -282,24 +282,24 @@ update agent_stats, decrement running_tasks, check health.
 ---
 
 ### TASK-008: get_agent_status Tool Implementation
-🟠 P1 | ⬜ TODO | Est: 1d
+🟠 P1 | ✅ DONE | Est: 1d
 
 **Description:**
 Implement get_agent_status tool: query agent registry, aggregate stats
 from agent_stats table, return capabilities and performance.
 
 **Checklist:**
-- [ ] `tools/agent_status.rs`: handle empty params (return all agents)
-- [ ] `tools/agent_status.rs`: handle agent_id param (single agent)
-- [ ] `tools/agent_status.rs`: error for unknown agent_id
-- [ ] `tools/agent_status.rs`: aggregate stats by_language, by_type
-- [ ] `tools/agent_status.rs`: include capabilities from config
-- [ ] `tools/agent_status.rs`: include current_load (running_tasks, slots)
+- [x] `tools/agent_status.rs`: handle empty params (return all agents)
+- [x] `tools/agent_status.rs`: handle agent_id param (single agent)
+- [x] `tools/agent_status.rs`: error for unknown agent_id
+- [x] `tools/agent_status.rs`: aggregate stats by_language, by_type
+- [x] `tools/agent_status.rs`: include capabilities from config
+- [x] `tools/agent_status.rs`: include current_load (running_tasks, slots)
 
 **Tests (Definition of Done):**
-- [ ] Unit tests: all agents returned
-- [ ] Unit tests: single agent returned
-- [ ] Unit tests: empty stats (fresh start)
+- [x] Unit tests: all agents returned
+- [x] Unit tests: single agent returned
+- [x] Unit tests: empty stats (fresh start)
 
 **Traces to:** [REQ-030]
 **Depends on:** [TASK-002], [TASK-009]
@@ -308,31 +308,31 @@ from agent_stats table, return capabilities and performance.
 ---
 
 ### TASK-009: SQLite Persistence Layer
-🔴 P0 | ⬜ TODO | Est: 2d
+🔴 P0 | ✅ DONE | Est: 2d
 
 **Description:**
 Implement SQLite layer: schema creation, migrations, CRUD operations for
 decisions, outcomes, agent_stats. Retry with backoff on contention.
 
 **Checklist:**
-- [ ] `db.rs`: Database::open() with WAL mode
-- [ ] `db.rs`: migrate() -> create schema v1 (5 tables, 8 indices)
-- [ ] `db.rs`: insert_decision() -> returns id
-- [ ] `db.rs`: insert_outcome()
-- [ ] `db.rs`: update_agent_stats() from outcome
-- [ ] `db.rs`: get_agent_stats() with aggregation
-- [ ] `db.rs`: find_decision_by_task()
-- [ ] `db.rs`: get_recent_failures(agent_id, hours)
-- [ ] `db.rs`: increment/decrement running_tasks
-- [ ] `db.rs`: retry with backoff (50ms, 100ms, 200ms) on lock
-- [ ] `agents.rs`: AgentRegistry backed by SQLite
-- [ ] `agents.rs`: load agents from config, upsert into SQLite
+- [x] `db.rs`: Database::open() with WAL mode
+- [x] `db.rs`: migrate() -> create schema v1 (5 tables, 8 indices)
+- [x] `db.rs`: insert_decision() -> returns id
+- [x] `db.rs`: insert_outcome()
+- [x] `db.rs`: update_agent_stats() from outcome
+- [x] `db.rs`: get_agent_stats() with aggregation
+- [x] `db.rs`: find_decision_by_task()
+- [x] `db.rs`: get_recent_failures(agent_id, hours)
+- [x] `db.rs`: increment/decrement running_tasks
+- [x] `db.rs`: retry with backoff (50ms, 100ms, 200ms) on lock
+- [x] `agents.rs`: AgentRegistry backed by SQLite
+- [x] `agents.rs`: load agents from config, upsert into SQLite
 
 **Tests (Definition of Done):**
-- [ ] Unit tests: insert/query decision (UT-16)
-- [ ] Unit tests: insert outcome + stats update (UT-17)
-- [ ] Unit tests: concurrent writes (UT-18)
-- [ ] Unit tests: running_tasks increment/decrement (UT-13, UT-14)
+- [x] Unit tests: insert/query decision (UT-16)
+- [x] Unit tests: insert outcome + stats update (UT-17)
+- [x] Unit tests: concurrent writes (UT-18)
+- [x] Unit tests: running_tasks increment/decrement (UT-13, UT-14)
 
 **Traces to:** [REQ-080]
 **Depends on:** [TASK-100]
@@ -341,30 +341,30 @@ decisions, outcomes, agent_stats. Retry with backoff on contention.
 ---
 
 ### TASK-010: Python MCP Client
-🟠 P1 | ⬜ TODO | Est: 1-2d
+🟠 P1 | ✅ DONE | Est: 1-2d
 
 **Description:**
 Implement ArbiterClient for Python Orchestrator. Subprocess management,
 JSON-RPC communication, reconnection logic.
 
 **Checklist:**
-- [ ] `orchestrator/arbiter_client.py`: ArbiterClient class
-- [ ] `orchestrator/arbiter_client.py`: start() -> subprocess + handshake
-- [ ] `orchestrator/arbiter_client.py`: stop() -> graceful shutdown
-- [ ] `orchestrator/arbiter_client.py`: route_task() -> send + receive
-- [ ] `orchestrator/arbiter_client.py`: report_outcome()
-- [ ] `orchestrator/arbiter_client.py`: get_agent_status()
-- [ ] `orchestrator/arbiter_client.py`: reconnection on broken pipe
-- [ ] `orchestrator/arbiter_client.py`: FallbackScheduler class
+- [x] `orchestrator/arbiter_client.py`: ArbiterClient class
+- [x] `orchestrator/arbiter_client.py`: start() -> subprocess + handshake
+- [x] `orchestrator/arbiter_client.py`: stop() -> graceful shutdown
+- [x] `orchestrator/arbiter_client.py`: route_task() -> send + receive
+- [x] `orchestrator/arbiter_client.py`: report_outcome()
+- [x] `orchestrator/arbiter_client.py`: get_agent_status()
+- [x] `orchestrator/arbiter_client.py`: reconnection on broken pipe
+- [x] `orchestrator/arbiter_client.py`: FallbackScheduler class
 
 **Tests (Definition of Done):**
-- [ ] Protocol test: handshake (PT-01)
-- [ ] Protocol test: route simple (PT-02)
-- [ ] Protocol test: route + report cycle (PT-03)
-- [ ] Protocol test: invalid params error (PT-04)
-- [ ] Protocol test: unknown tool error (PT-05)
-- [ ] Protocol test: server crash recovery (PT-06)
-- [ ] Protocol test: large batch 100x (PT-07)
+- [x] Protocol test: handshake (PT-01)
+- [x] Protocol test: route simple (PT-02)
+- [x] Protocol test: route + report cycle (PT-03)
+- [x] Protocol test: invalid params error (PT-04)
+- [x] Protocol test: unknown tool error (PT-05)
+- [x] Protocol test: server crash recovery (PT-06)
+- [x] Protocol test: large batch 100x (PT-07)
 
 **Traces to:** [REQ-090]
 **Depends on:** [TASK-002]
@@ -373,29 +373,29 @@ JSON-RPC communication, reconnection logic.
 ---
 
 ### TASK-011: Integration Tests and Benchmarks
-🟠 P1 | ⬜ TODO | Est: 2d
+🟠 P1 | ✅ DONE | Est: 2d
 
 **Description:**
 Write full integration tests (Rust) and benchmarks.
 Verify end-to-end pipeline and performance targets.
 
 **Checklist:**
-- [ ] Integration test: happy path (IT-01)
-- [ ] Integration test: fallback on scope conflict (IT-02)
-- [ ] Integration test: all rejected (IT-03)
-- [ ] Integration test: cold start (IT-04)
-- [ ] Integration test: stats accumulation 10x (IT-05)
-- [ ] Integration test: agent failure 6x (IT-06)
-- [ ] Integration test: concurrent routing 3x (IT-07)
-- [ ] Benchmark: route throughput > 10K/sec (BT-01)
-- [ ] Benchmark: route e2e latency < 5ms p99 (BT-02)
-- [ ] Benchmark: report latency < 10ms p99 (BT-03)
-- [ ] Benchmark: memory < 50MB (BT-04)
-- [ ] Benchmark: SQLite size < 10MB after 10K (BT-05)
+- [x] Integration test: happy path (IT-01)
+- [x] Integration test: fallback on scope conflict (IT-02)
+- [x] Integration test: all rejected (IT-03)
+- [x] Integration test: cold start (IT-04)
+- [x] Integration test: stats accumulation 10x (IT-05)
+- [x] Integration test: agent failure 6x (IT-06)
+- [x] Integration test: concurrent routing 3x (IT-07)
+- [x] Benchmark: route throughput > 10K/sec (BT-01)
+- [x] Benchmark: route e2e latency < 5ms p99 (BT-02)
+- [x] Benchmark: report latency < 10ms p99 (BT-03)
+- [x] Benchmark: memory < 50MB (BT-04)
+- [x] Benchmark: SQLite size < 10MB after 10K (BT-05)
 
 **Tests (Definition of Done):**
-- [ ] All 7 integration tests pass
-- [ ] All 5 benchmarks meet targets
+- [x] All 7 integration tests pass
+- [x] All 5 benchmarks meet targets
 
 **Traces to:** [NFR-000], [NFR-001]
 **Depends on:** [TASK-004], [TASK-007]
@@ -406,19 +406,19 @@ Verify end-to-end pipeline and performance targets.
 ## Milestone 2: Integration & Polish
 
 ### TASK-012: Configuration Files
-🟠 P1 | ⬜ TODO | Est: 4h
+🟠 P1 | ✅ DONE | Est: 4h
 
 **Description:**
 Create config/agents.toml and config/invariants.toml with full definitions
 of three agents and thresholds for all invariant rules.
 
 **Checklist:**
-- [ ] `config/agents.toml`: claude_code definition
-- [ ] `config/agents.toml`: codex_cli definition
-- [ ] `config/agents.toml`: aider definition
-- [ ] `config/invariants.toml`: budget threshold
-- [ ] `config/invariants.toml`: retries, rate_limit, agent_health
-- [ ] `config/invariants.toml`: concurrency, sla
+- [x] `config/agents.toml`: claude_code definition
+- [x] `config/agents.toml`: codex_cli definition
+- [x] `config/agents.toml`: aider definition
+- [x] `config/invariants.toml`: budget threshold
+- [x] `config/invariants.toml`: retries, rate_limit, agent_health
+- [x] `config/invariants.toml`: concurrency, sla
 
 **Traces to:** [REQ-070], [REQ-071]
 **Depends on:** [TASK-002]
@@ -427,18 +427,18 @@ of three agents and thresholds for all invariant rules.
 ---
 
 ### TASK-013: Error Handling and Degraded Mode
-🟡 P2 | ⬜ TODO | Est: 1d
+🟡 P2 | ✅ DONE | Est: 1d
 
 **Description:**
 Implement graceful degradation: fallback round-robin when tree is unavailable,
 retry with backoff for SQLite, handling of unknown task_type/language.
 
 **Checklist:**
-- [ ] Degraded mode: round-robin when tree unavailable
-- [ ] SQLite retry with backoff (50ms, 100ms, 200ms)
-- [ ] Unknown task_type -> default + warning
-- [ ] Unknown language -> default + warning
-- [ ] All agents failed -> reject with reasoning
+- [x] Degraded mode: round-robin when tree unavailable
+- [x] SQLite retry with backoff (50ms, 100ms, 200ms)
+- [x] Unknown task_type -> default + warning
+- [x] Unknown language -> default + warning
+- [x] All agents failed -> reject with reasoning
 
 **Traces to:** [REQ-003]
 **Depends on:** [TASK-004], [TASK-009]
@@ -447,20 +447,20 @@ retry with backoff for SQLite, handling of unknown task_type/language.
 ---
 
 ### TASK-014: README and Documentation
-🟡 P2 | ⬜ TODO | Est: 4h
+🟡 P2 | ✅ DONE | Est: 4h
 
 **Description:**
 Write README.md with quick start, architecture diagram, usage examples,
 and integration instructions for Claude Desktop and Orchestrator.
 
 **Checklist:**
-- [ ] Quick start guide (build, configure, run)
-- [ ] Architecture overview diagram
-- [ ] MCP tool usage examples
-- [ ] Claude Desktop integration snippet
-- [ ] Orchestrator integration snippet
-- [ ] Performance characteristics
-- [ ] Configuration reference
+- [x] Quick start guide (build, configure, run)
+- [x] Architecture overview diagram
+- [x] MCP tool usage examples
+- [x] Claude Desktop integration snippet
+- [x] Orchestrator integration snippet
+- [x] Performance characteristics
+- [x] Configuration reference
 
 **Traces to:** [NFR-003]
 **Depends on:** [TASK-004], [TASK-007], [TASK-008]

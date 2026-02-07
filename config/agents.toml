@@ -1,0 +1,23 @@
+[claude_code]
+display_name = "Claude Code"
+supports_languages = ["python", "rust", "typescript"]
+supports_types = ["feature", "bugfix", "refactor", "docs", "review"]
+max_concurrent = 2
+cost_per_hour = 0.30
+avg_duration_min = 18.0
+
+[codex_cli]
+display_name = "Codex CLI"
+supports_languages = ["typescript", "go", "python"]
+supports_types = ["feature", "bugfix", "refactor", "test"]
+max_concurrent = 3
+cost_per_hour = 0.20
+avg_duration_min = 12.0
+
+[aider]
+display_name = "Aider"
+supports_languages = ["python", "javascript"]
+supports_types = ["bugfix", "refactor", "test"]
+max_concurrent = 5
+cost_per_hour = 0.10
+avg_duration_min = 8.0

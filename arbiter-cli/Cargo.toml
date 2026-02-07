@@ -7,6 +7,12 @@ description = "CLI for Arbiter smoke tests and benchmarks"
 
 [dependencies]
 arbiter-core = { path = "../arbiter-core" }
+arbiter-mcp = { path = "../arbiter-mcp" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+chrono = { workspace = true }
+rusqlite = { workspace = true }
+tempfile = "3"
+
+[dev-dependencies]
