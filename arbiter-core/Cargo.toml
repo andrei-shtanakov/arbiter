@@ -1,0 +1,13 @@
+[package]
+name = "arbiter-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared library for Arbiter: types, DT inference, invariants, metrics"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
