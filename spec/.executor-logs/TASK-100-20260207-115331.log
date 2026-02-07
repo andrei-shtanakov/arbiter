@@ -1,0 +1,144 @@
+=== PROMPT ===
+# Task Execution Request
+
+## Task: TASK-100 — Test Infrastructure Setup
+
+**Priority:** P0
+**Estimate:** 1d
+**Milestone:** 
+
+## Checklist (implement ALL items):
+
+- [ ] Cargo.toml workspace with members: arbiter-core, arbiter-mcp, arbiter-cli
+- [ ] arbiter-core/Cargo.toml with workspace dependencies
+- [ ] arbiter-mcp/Cargo.toml with workspace dependencies + rusqlite, toml
+- [ ] arbiter-cli/Cargo.toml
+- [ ] Minimal lib.rs / main.rs for compilation
+- [ ] `cargo build` passes
+- [ ] `cargo test` passes (empty tests)
+- [ ] `cargo clippy -- -D warnings` clean
+
+## Related Requirements:
+
+See spec/requirements.md
+
+## Related Design:
+
+See spec/design.md
+
+## Instructions:
+
+1. Implement ALL checklist items for this task
+2. Write unit tests for new code (coverage ≥80%)
+3. Follow the design patterns from spec/design.md
+4. Use existing code style and conventions
+5. Create/update files as needed
+
+## Dependencies:
+
+- To add a new dependency: `uv add <package>`
+- To add a dev dependency: `uv add --dev <package>`
+- NEVER edit pyproject.toml manually for dependencies
+- After adding dependencies, they are available immediately
+
+## Success Criteria:
+
+- All checklist items implemented
+- All tests pass (`uv run pytest`)
+- No lint errors (`uv run ruff check .`)
+- Code follows project conventions
+
+## Output:
+
+When complete, respond with:
+- Summary of changes made
+- Files created/modified
+- Any issues or notes
+- "TASK_COMPLETE" if successful, or "TASK_FAILED: <reason>" if not
+
+
+## ⚠️ PREVIOUS ATTEMPTS FAILED - FIX THESE ISSUES:
+
+### Attempt 1 (failed):
+**Error:** Tests failed:
+
+error: Failed to spawn: `pytest`
+  Caused by: No such file or directory (os error 2)
+
+
+**Test failures:**
+```
+All checklist items are complete. Here's the summary:
+
+## Summary of Changes
+
+### Files Created
+- **`Cargo.toml`** — Workspace root with 3 members (`arbiter-core`, `arbiter-mcp`, `arbiter-cli`), resolver v2, and shared workspace dependencies (serde, serde_json, tokio, tracing, tracing-subscriber, anyhow, thiserror, rusqlite with bundled, toml, chrono)
+- **`arbiter-core/Cargo.toml`** — Library crate with workspace deps: serde, serde_json, tracing, anyhow, thiserror
+- **`arbiter-core/src/lib.rs`** — Minimal lib with doc comment and a compilation test
+- **`arbiter-mcp/Cargo.toml`** — Binary crate depending on arbiter-core + workspace deps including rusqlite, toml, chrono
+- **`arbiter-mcp/src/main.rs`** — Minimal main with doc comment and a compilation test
+- **`arbiter-cli/Cargo.toml`** — Binary crate depending on arbiter-core + serde, serde_json, anyhow
+- **`arbiter-cli/src/main.rs`** — Minimal main with doc comment and a compilation test
+
+### Files Modified
+- **`.gitignore`** — Added `target/`, `*.db`, `*.db-journal`, `*.db-wal` patterns
+
+### Verification Results
+- `cargo build` — passes (0 warnings)
+- `cargo test` — 3/3 tests pass (one per crate)
+- `cargo clippy --workspace -- -D warnings` — clean (0 warnings)
+- `cargo fmt --all -- --check` — clean
+
+TASK_COMPLETE
+
+
+=== TEST FAILURES ===
+Tests failed:
+
+error: Failed to spawn: `pytest`
+  Caused by: No such file or directory (os error 2)
+
+```
+
+**IMPORTANT:** Review the errors above and fix the issues. Do not repeat the same mistakes.
+
+
+Begin implementation:
+
+
+=== OUTPUT ===
+## Summary of Changes
+
+### Files Created
+- **`tests/__init__.py`** — Empty init for Python test package
+- **`tests/test_workspace.py`** — 3 Python tests that verify `cargo build`, `cargo test`, and `cargo clippy` pass
+
+### Files Modified
+- **`pyproject.toml`** — Added `pytest` and `ruff` as dev dependencies (via `uv add --dev`)
+
+### Pre-existing (from previous attempt, verified working)
+- **`Cargo.toml`** — Workspace root with 3 members, resolver v2, shared workspace dependencies
+- **`arbiter-core/Cargo.toml`** + **`src/lib.rs`** — Library crate with compilation test
+- **`arbiter-mcp/Cargo.toml`** + **`src/main.rs`** — Binary crate with rusqlite, toml deps + compilation test
+- **`arbiter-cli/Cargo.toml`** + **`src/main.rs`** — Binary crate + compilation test
+- **`.gitignore`** — Rust/Python/SQLite patterns
+
+### Verification Results
+- `cargo build` — passes
+- `cargo test` — 3/3 Rust tests pass
+- `cargo clippy --workspace -- -D warnings` — clean
+- `cargo fmt --all -- --check` — clean
+- `uv run pytest` — 3/3 Python tests pass
+- `uv run ruff check tests/` — clean
+
+### Root Cause of Previous Failure
+The previous attempt completed all Rust checklist items correctly, but failed because `pytest` wasn't installed as a Python dev dependency. The spec-runner validation tool runs `uv run pytest` after task completion. Fixed by adding `pytest` (and `ruff`) as dev dependencies and creating Python tests that verify the Rust workspace infrastructure.
+
+TASK_COMPLETE
+
+
+=== STDERR ===
+
+
+=== RETURN CODE: 0 ===

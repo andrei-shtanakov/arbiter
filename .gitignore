@@ -8,3 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Rust build artifacts
+target/
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal

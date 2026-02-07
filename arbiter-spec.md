@@ -1,94 +1,94 @@
-# ТЗ: Arbiter — Policy Engine MCP Server (MVP)
+# Technical Specification: Arbiter — Policy Engine MCP Server (MVP)
 
-**Версия:** 1.1
-**Дата:** 2026-02-07
-**Основа:** mcp-policy-engine-design.md v1.0
-**Scope:** Phase 1 (MVP) — минимальный работающий продукт
-**Репозиторий:** `arbiter`
+**Version:** 1.1
+**Date:** 2026-02-07
+**Based on:** mcp-policy-engine-design.md v1.0
+**Scope:** Phase 1 (MVP) — minimum viable product
+**Repository:** `arbiter`
 
 ---
 
-## 1. Цель и scope
+## 1. Goal and Scope
 
-### 1.1 Цель
+### 1.1 Goal
 
-Создать MCP-сервер на Rust (`arbiter`), который принимает от Agent Orchestrator
-описание кодинг-задачи и возвращает решение: какому агенту (Claude Code, Codex CLI,
-Aider) отдать задачу, с какими параметрами, и почему.
+Create a Rust MCP server (`arbiter`) that receives a coding task description from the
+Agent Orchestrator and returns a decision: which agent (Claude Code, Codex CLI,
+Aider) should handle the task, with what parameters, and why.
 
-### 1.2 Что входит в MVP
+### 1.2 What is included in the MVP
 
-- MCP-сервер со stdio transport (JSON-RPC 2.0)
-- 2 обязательных tool: `route_task`, `report_outcome`
-- 1 информационный tool: `get_agent_status`
-- Decision Tree inference (переиспользование из `arbiter-core`)
-- 10 invariant rules с cascade fallback
-- Agent registry с 3 агентами
-- SQLite persistence для stats и decision log
+- MCP server with stdio transport (JSON-RPC 2.0)
+- 2 required tools: `route_task`, `report_outcome`
+- 1 informational tool: `get_agent_status`
+- Decision Tree inference (reused from `arbiter-core`)
+- 10 invariant rules with cascade fallback
+- Agent registry with 3 agents
+- SQLite persistence for stats and decision log
 - Expert-policy bootstrap tree
-- Python MCP client для Orchestrator
-- Smoke / integration / benchmark тесты
+- Python MCP client for the Orchestrator
+- Smoke / integration / benchmark tests
 
-### 1.3 Что НЕ входит в MVP
+### 1.3 What is NOT included in the MVP
 
 - HTTP SSE transport (Phase 2)
 - `evaluate_strategy` tool (Phase 3)
-- Hot reload дерева (Phase 2)
-- Retraining pipeline (Phase 2, только logging в MVP)
+- Hot reload of the tree (Phase 2)
+- Retraining pipeline (Phase 2, only logging in the MVP)
 - Dashboard / TUI (Phase 4)
 - Docker Compose deployment (Phase 4)
-- ONNX backend (уже есть в PoC, но не критичен для MVP)
+- ONNX backend (already exists in the PoC, but not critical for the MVP)
 
-### 1.4 Определения
+### 1.4 Definitions
 
-| Термин | Значение |
+| Term | Meaning |
 |---|---|
-| Arbiter | Rust MCP-сервер, принимающий решения о маршрутизации задач |
-| Orchestrator | Python daemon, управляющий задачами, зависимостями, git, запуском агентов |
-| Agent | Внешний кодинг-инструмент (Claude Code, Codex CLI, Aider) |
-| Decision Tree | Обученная sklearn/XGBoost модель, экспортированная в JSON |
-| Invariant | Правило безопасности, проверяемое перед выполнением решения |
-| Expert Policy | Начальный набор правил, кодирующий экспертные знания |
+| Arbiter | Rust MCP server that makes task routing decisions |
+| Orchestrator | Python daemon that manages tasks, dependencies, git, and agent launching |
+| Agent | External coding tool (Claude Code, Codex CLI, Aider) |
+| Decision Tree | A trained sklearn/XGBoost model exported to JSON |
+| Invariant | A safety rule checked before executing a decision |
+| Expert Policy | An initial set of rules encoding expert knowledge |
 
 ---
 
-## 2. Контракт с существующим AI-OS PoC
+## 2. Contract with the Existing AI-OS PoC
 
-AI-OS PoC (`ai-os-poc/`) содержит работающий Decision Tree inference, Invariant Layer
-и Model Registry на Rust. Arbiter переиспользует core-логику, адаптируя её под
-контекст кодинг-агентов вместо ML-моделей.
+The AI-OS PoC (`ai-os-poc/`) contains a working Decision Tree inference, Invariant Layer,
+and Model Registry in Rust. Arbiter reuses the core logic, adapting it for the context
+of coding agents instead of ML models.
 
-### 2.1 Что переиспользуется из `arbiter-core` напрямую
+### 2.1 What is reused from `arbiter-core` directly
 
-| Модуль | Файл | Что берём | Адаптация |
+| Module | File | What we take | Adaptation |
 |---|---|---|---|
-| Decision Tree inference | `policy/decision_tree.rs` | Парсинг sklearn JSON, traversal, decision path | Без изменений — подключаем как dependency |
-| Policy Engine wrapper | `policy/engine.rs` | DT + ONNX fallback | Расширяем: добавляем multi-agent evaluation |
-| Metrics | `metrics.rs` | Atomic counters, Prometheus | Без изменений |
+| Decision Tree inference | `policy/decision_tree.rs` | sklearn JSON parsing, traversal, decision path | No changes — connected as a dependency |
+| Policy Engine wrapper | `policy/engine.rs` | DT + ONNX fallback | Extended: adding multi-agent evaluation |
+| Metrics | `metrics.rs` | Atomic counters, Prometheus | No changes |
 
-### 2.2 Что адаптируется
+### 2.2 What is adapted
 
-| Модуль | Файл | Текущее состояние (AI-OS PoC) | Что меняем (Arbiter) |
+| Module | File | Current state (AI-OS PoC) | What we change (Arbiter) |
 |---|---|---|---|
-| FeatureVector | `types.rs` | 26-dim для ML-моделей (GPU, VRAM, queue) | Новый 22-dim вектор для кодинг-агентов (task_type, language, complexity, agent_stats) |
-| PolicyAction | `types.rs` | Enum: RouteToModel, ScaleUp, ScaleDown, Reject, Fallback | Новый enum: Assign(agent_id), Reject(reason), Fallback(agent_id, reason) |
-| Invariant rules | `invariant/rules.rs` | 7 правил для ML-инфраструктуры (GPU capacity, VRAM) | 10 новых правил для агент-оркестрации (scope isolation, branch lock, concurrency) |
-| Registry | `registry/lifecycle.rs` | 8-state FSM для ML-моделей, in-memory | 4-state FSM для агентов (inactive, active, busy, failed) + SQLite persistence |
+| FeatureVector | `types.rs` | 26-dim for ML models (GPU, VRAM, queue) | New 22-dim vector for coding agents (task_type, language, complexity, agent_stats) |
+| PolicyAction | `types.rs` | Enum: RouteToModel, ScaleUp, ScaleDown, Reject, Fallback | New enum: Assign(agent_id), Reject(reason), Fallback(agent_id, reason) |
+| Invariant rules | `invariant/rules.rs` | 7 rules for ML infrastructure (GPU capacity, VRAM) | 10 new rules for agent orchestration (scope isolation, branch lock, concurrency) |
+| Registry | `registry/lifecycle.rs` | 8-state FSM for ML models, in-memory | 4-state FSM for agents (inactive, active, busy, failed) + SQLite persistence |
 
-### 2.3 Что пишется с нуля
+### 2.3 What is written from scratch
 
-| Компонент | Описание |
+| Component | Description |
 |---|---|
 | `arbiter-mcp` crate | MCP server binary, stdio transport, JSON-RPC handler |
 | MCP protocol layer | `initialize`, `tools/list`, `tools/call` handlers |
 | `route_task` tool | Feature extraction → DT inference → invariant check → response |
 | `report_outcome` tool | Outcome recording, stats update |
 | `get_agent_status` tool | Agent registry query |
-| SQLite layer | Schema, migrations, CRUD для outcomes/stats/decisions |
+| SQLite layer | Schema, migrations, CRUD for outcomes/stats/decisions |
 | Feature builder | Raw task JSON → 22-dim numeric vector |
-| Agent config loader | TOML parser для agents.toml, invariants.toml |
+| Agent config loader | TOML parser for agents.toml, invariants.toml |
 | Bootstrap tree trainer | Python script: expert rules → sklearn tree → JSON export |
-| Python MCP client | `ArbiterClient` class для Orchestrator |
+| Python MCP client | `ArbiterClient` class for the Orchestrator |
 
 ### 2.4 Cargo workspace layout
 
@@ -143,22 +143,22 @@ arbiter/                             # Repository root
 
 ---
 
-## 3. Схема данных (SQLite)
+## 3. Data Schema (SQLite)
 
-### 3.1 Файл БД
+### 3.1 Database File
 
-Путь: задаётся через `--db <path>` (по умолчанию `./arbiter.db`).
+Path: specified via `--db <path>` (default: `./arbiter.db`).
 
-### 3.2 Таблицы
+### 3.2 Tables
 
 ```sql
--- Версионирование схемы
+-- Schema versioning
 CREATE TABLE IF NOT EXISTS schema_version (
     version     INTEGER PRIMARY KEY,
     applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Зарегистрированные агенты и их текущее состояние
+-- Registered agents and their current state
 CREATE TABLE IF NOT EXISTS agents (
     id                TEXT PRIMARY KEY,           -- "claude_code", "codex_cli", "aider"
     display_name      TEXT NOT NULL,
@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS agents (
     updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Агрегированная статистика (обновляется при каждом report_outcome)
+-- Aggregated statistics (updated on each report_outcome)
 CREATE TABLE IF NOT EXISTS agent_stats (
     agent_id          TEXT NOT NULL,
     task_type         TEXT NOT NULL,              -- "feature", "bugfix", etc.
@@ -187,15 +187,15 @@ CREATE TABLE IF NOT EXISTS agent_stats (
     FOREIGN KEY (agent_id) REFERENCES agents(id)
 );
 
--- Каждое принятое решение (аудит + данные для retraining)
+-- Each decision made (audit + data for retraining)
 CREATE TABLE IF NOT EXISTS decisions (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id           TEXT NOT NULL,
     timestamp         TEXT NOT NULL DEFAULT (datetime('now')),
     -- Input
-    task_json         TEXT NOT NULL,               -- полный JSON задачи от Orchestrator
+    task_json         TEXT NOT NULL,               -- full task JSON from the Orchestrator
     feature_vector    TEXT NOT NULL,               -- JSON array of 22 floats
-    constraints_json  TEXT,                        -- constraints от Orchestrator
+    constraints_json  TEXT,                        -- constraints from the Orchestrator
     -- Decision
     chosen_agent      TEXT NOT NULL,
     action            TEXT NOT NULL CHECK (action IN ('assign', 'reject', 'fallback')),
@@ -211,7 +211,7 @@ CREATE TABLE IF NOT EXISTS decisions (
     inference_us      INTEGER NOT NULL             -- tree inference time in microseconds
 );
 
--- Результаты выполнения задач (feedback loop)
+-- Task execution results (feedback loop)
 CREATE TABLE IF NOT EXISTS outcomes (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id           TEXT NOT NULL,
@@ -233,7 +233,7 @@ CREATE TABLE IF NOT EXISTS outcomes (
     FOREIGN KEY (agent_id) REFERENCES agents(id)
 );
 
--- Индексы для быстрых запросов
+-- Indexes for fast queries
 CREATE INDEX IF NOT EXISTS idx_decisions_task ON decisions(task_id);
 CREATE INDEX IF NOT EXISTS idx_decisions_agent ON decisions(chosen_agent);
 CREATE INDEX IF NOT EXISTS idx_decisions_ts ON decisions(timestamp);
@@ -243,31 +243,31 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_status ON outcomes(status);
 CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
 ```
 
-### 3.3 Миграции
+### 3.3 Migrations
 
-При запуске `arbiter` проверяет `schema_version`. Если таблица отсутствует или
-версия < текущей, применяет миграции последовательно. MVP использует одну миграцию
-(v1 — создание всех таблиц).
+On startup, `arbiter` checks `schema_version`. If the table does not exist or the
+version is less than the current one, it applies migrations sequentially. The MVP uses
+a single migration (v1 — creation of all tables).
 
 ---
 
-## 4. Спецификация компонентов
+## 4. Component Specifications
 
 ### 4.1 MCP Server (`arbiter-mcp/src/server.rs`)
 
-**Протокол:** JSON-RPC 2.0 over stdio (stdin/stdout), по одному JSON-объекту на строку.
+**Protocol:** JSON-RPC 2.0 over stdio (stdin/stdout), one JSON object per line.
 
 **Lifecycle:**
 
-1. Orchestrator запускает `arbiter` как subprocess
-2. Orchestrator отправляет `initialize` → сервер отвечает capabilities
-3. Orchestrator отправляет `initialized` notification
-4. Далее — `tools/list` и `tools/call` по необходимости
-5. При завершении Orchestrator закрывает stdin → сервер завершается gracefully
+1. The Orchestrator launches `arbiter` as a subprocess
+2. The Orchestrator sends `initialize` → the server responds with capabilities
+3. The Orchestrator sends `initialized` notification
+4. Then — `tools/list` and `tools/call` as needed
+5. On shutdown, the Orchestrator closes stdin → the server terminates gracefully
 
-**Обязательные MCP methods:**
+**Required MCP methods:**
 
-| Method | Direction | Описание |
+| Method | Direction | Description |
 |---|---|---|
 | `initialize` | client → server | Handshake, exchange capabilities |
 | `initialized` | client → server | Notification: handshake complete |
@@ -290,18 +290,18 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
 
 **Acceptance criteria:**
 
-- AC-4.1.1: Сервер запускается за < 500ms, включая загрузку дерева и SQLite init
-- AC-4.1.2: Сервер корректно обрабатывает `initialize` → `initialized` → `tools/list`
-- AC-4.1.3: Сервер возвращает JSON-RPC error (-32601) для неизвестных methods
-- AC-4.1.4: Сервер возвращает JSON-RPC error (-32602) для невалидных params
-- AC-4.1.5: Сервер корректно завершается при EOF на stdin (exit code 0)
-- AC-4.1.6: Все сообщения в stderr (логи), никогда в stdout (protocol only)
+- AC-4.1.1: The server starts in < 500ms, including tree loading and SQLite init
+- AC-4.1.2: The server correctly handles `initialize` → `initialized` → `tools/list`
+- AC-4.1.3: The server returns a JSON-RPC error (-32601) for unknown methods
+- AC-4.1.4: The server returns a JSON-RPC error (-32602) for invalid params
+- AC-4.1.5: The server terminates correctly on EOF on stdin (exit code 0)
+- AC-4.1.6: All messages go to stderr (logs), never to stdout (protocol only)
 
 ### 4.2 Tool: `route_task` (`arbiter-mcp/src/tools/route_task.rs`)
 
-**Input/Output:** см. design document, секция 2.1.
+**Input/Output:** see design document, section 2.1.
 
-**Алгоритм:**
+**Algorithm:**
 
 ```
 1. Validate input JSON against schema
@@ -326,21 +326,21 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
 
 **Acceptance criteria:**
 
-- AC-4.2.1: С 3 активными агентами и пустой историей, `route_task` возвращает решение за < 5ms
-- AC-4.2.2: Если preferred_agent указан и доступен, он выбирается (при прочих равных confidence +0.1 boost)
-- AC-4.2.3: Если все агенты excluded → action="reject", reasoning содержит причину
-- AC-4.2.4: Если выбранный агент имеет scope conflict → fallback на следующего
-- AC-4.2.5: Decision записывается в SQLite с полным feature vector и decision path
-- AC-4.2.6: Response всегда содержит invariant_checks с результатами всех 10 правил
-- AC-4.2.7: При невалидном input JSON → JSON-RPC error с описанием проблемы
-- AC-4.2.8: Confidence ∈ [0.0, 1.0], decision_path — непустой массив строк
-- AC-4.2.9: running_tasks инкрементируется при action="assign" или action="fallback"
+- AC-4.2.1: With 3 active agents and empty history, `route_task` returns a decision in < 5ms
+- AC-4.2.2: If preferred_agent is specified and available, it is selected (with a +0.1 confidence boost, all else being equal)
+- AC-4.2.3: If all agents are excluded → action="reject", reasoning contains the reason
+- AC-4.2.4: If the selected agent has a scope conflict → fallback to the next agent
+- AC-4.2.5: The decision is written to SQLite with the full feature vector and decision path
+- AC-4.2.6: The response always contains invariant_checks with results for all 10 rules
+- AC-4.2.7: On invalid input JSON → JSON-RPC error with a description of the problem
+- AC-4.2.8: Confidence is in [0.0, 1.0], decision_path is a non-empty array of strings
+- AC-4.2.9: running_tasks is incremented on action="assign" or action="fallback"
 
 ### 4.3 Tool: `report_outcome` (`arbiter-mcp/src/tools/report_outcome.rs`)
 
-**Input/Output:** см. design document, секция 2.2.
+**Input/Output:** see design document, section 2.2.
 
-**Алгоритм:**
+**Algorithm:**
 
 ```
 1. Validate input JSON
@@ -359,27 +359,27 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
 
 **Acceptance criteria:**
 
-- AC-4.3.1: После report_outcome, agent_stats отражает новые данные
-- AC-4.3.2: Если task_id не найден в decisions → warning в response, но outcome записывается
-- AC-4.3.3: running_tasks корректно декрементируется (никогда < 0)
-- AC-4.3.4: При > 5 failures за 24h → retrain_suggested=true
-- AC-4.3.5: Все поля outcome опциональны кроме status
-- AC-4.3.6: Дублирующий report_outcome для того же task_id → записывается (idempotency через перезапись)
+- AC-4.3.1: After report_outcome, agent_stats reflects the new data
+- AC-4.3.2: If task_id is not found in decisions → warning in the response, but the outcome is still recorded
+- AC-4.3.3: running_tasks is correctly decremented (never < 0)
+- AC-4.3.4: With > 5 failures in 24h → retrain_suggested=true
+- AC-4.3.5: All outcome fields are optional except status
+- AC-4.3.6: A duplicate report_outcome for the same task_id → is recorded (idempotency via overwrite)
 
 ### 4.4 Tool: `get_agent_status` (`arbiter-mcp/src/tools/agent_status.rs`)
 
-**Input/Output:** см. design document, секция 2.3.
+**Input/Output:** see design document, section 2.3.
 
 **Acceptance criteria:**
 
-- AC-4.4.1: Без параметров → возвращает все 3 агента
-- AC-4.4.2: С agent_id → возвращает одного агента или error "agent not found"
-- AC-4.4.3: Performance stats рассчитываются из agent_stats (не hardcoded)
-- AC-4.4.4: by_language и by_type группировки корректны при пустой истории (пустые объекты)
+- AC-4.4.1: Without parameters → returns all 3 agents
+- AC-4.4.2: With agent_id → returns a single agent or error "agent not found"
+- AC-4.4.3: Performance stats are calculated from agent_stats (not hardcoded)
+- AC-4.4.4: by_language and by_type groupings are correct with empty history (empty objects)
 
 ### 4.5 Feature Builder (`arbiter-mcp/src/features.rs`)
 
-Трансформация сырого JSON задачи + agent stats → 22-dim float vector.
+Transformation of raw task JSON + agent stats → 22-dim float vector.
 
 **Encoding:**
 
@@ -408,7 +408,7 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
 | time_of_day_hour | current hour UTC | [0, 23] |
 | concurrent_scope_conflicts | count of running tasks with overlapping scope | [0, 10] |
 
-**Default values** (когда данные отсутствуют):
+**Default values** (when data is unavailable):
 
 | Feature | Default | Reason |
 |---|---|---|
@@ -421,14 +421,14 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
 
 **Acceptance criteria:**
 
-- AC-4.5.1: Для одного task + 3 агентов → строится ровно 3 вектора по 22 элемента
-- AC-4.5.2: Все значения в указанных ranges (capping корректен)
-- AC-4.5.3: При отсутствии optional полей → default values
-- AC-4.5.4: Feature builder работает без SQLite (для unit-тестов, с mock stats)
+- AC-4.5.1: For one task + 3 agents → exactly 3 vectors of 22 elements are built
+- AC-4.5.2: All values are within the specified ranges (capping is correct)
+- AC-4.5.3: When optional fields are absent → default values are used
+- AC-4.5.4: The feature builder works without SQLite (for unit tests, with mock stats)
 
-### 4.6 Invariant Layer (`arbiter-core/src/invariant/rules.rs` — расширение)
+### 4.6 Invariant Layer (`arbiter-core/src/invariant/rules.rs` — extension)
 
-10 правил. Каждое правило — функция `(action, system_state) → InvariantResult`.
+10 rules. Each rule is a function `(action, system_state) → InvariantResult`.
 
 ```rust
 pub struct InvariantResult {
@@ -444,7 +444,7 @@ pub enum Severity {
 }
 ```
 
-**Правила:**
+**Rules:**
 
 | # | Rule ID | Severity | Input | Logic | Failure message |
 |---|---|---|---|---|---|
@@ -457,27 +457,27 @@ pub enum Severity {
 | 7 | `rate_limit` | Warning | API calls this minute | calls < rate_limit_per_minute | "Rate limit: {calls}/{limit} calls/min" |
 | 8 | `agent_health` | Warning | recent failures | failures_24h < max_failures_per_agent_24h | "Agent {id}: {n} failures in 24h (limit: {max})" |
 | 9 | `task_compatible` | Warning | agent capabilities | agent supports language AND task_type | "Agent {id} doesn't support {lang}/{type}" |
-| 10 | `sla_feasible` | Warning | estimated duration × buffer | estimated_duration × sla_buffer ≤ sla_minutes | "SLA risk: est {est}min × {buf} > {sla}min" |
+| 10 | `sla_feasible` | Warning | estimated duration x buffer | estimated_duration x sla_buffer ≤ sla_minutes | "SLA risk: est {est}min x {buf} > {sla}min" |
 
-**Cascade fallback при Critical violation:**
+**Cascade fallback on Critical violation:**
 
 ```
-1. Выбранный агент не прошёл critical check
-2. Берём следующего по score из DT ranking
-3. Прогоняем invariants
-4. Если прошёл → assign с fallback_reason
-5. Если не прошёл → повторяем (до max_fallback_attempts=2)
-6. Если все провалились → action="reject"
+1. The selected agent failed a critical check
+2. Take the next agent by score from the DT ranking
+3. Run invariants
+4. If passed → assign with fallback_reason
+5. If failed → repeat (up to max_fallback_attempts=2)
+6. If all failed → action="reject"
 ```
 
 **Acceptance criteria:**
 
-- AC-4.6.1: Critical violation → action="fallback" или "reject", никогда "assign"
-- AC-4.6.2: Warning violation → action="assign", warning в invariant_checks
-- AC-4.6.3: Scope isolation проверяет пересечение на уровне файлов/директорий
-- AC-4.6.4: Branch lock проверяет exact match branch name
-- AC-4.6.5: Invariant check отрабатывает за < 1ms (все правила вместе)
-- AC-4.6.6: Все 10 правил всегда выполняются и возвращаются в response (даже passed=true)
+- AC-4.6.1: Critical violation → action="fallback" or "reject", never "assign"
+- AC-4.6.2: Warning violation → action="assign", warning in invariant_checks
+- AC-4.6.3: Scope isolation checks intersection at the file/directory level
+- AC-4.6.4: Branch lock checks exact match of the branch name
+- AC-4.6.5: Invariant check completes in < 1ms (all rules combined)
+- AC-4.6.6: All 10 rules are always executed and returned in the response (even when passed=true)
 
 ### 4.7 Agent Registry (`arbiter-mcp/src/agents.rs`)
 
@@ -502,7 +502,7 @@ pub enum Severity {
                                back to active
 ```
 
-В MVP: state управляется через running_tasks count:
+In the MVP: state is managed via the running_tasks count:
 - `running_tasks == 0` → active
 - `0 < running_tasks < max_concurrent` → active (has capacity)
 - `running_tasks == max_concurrent` → busy (no capacity)
@@ -510,55 +510,55 @@ pub enum Severity {
 
 **Acceptance criteria:**
 
-- AC-4.7.1: При запуске — загрузка агентов из agents.toml, запись в SQLite если не существуют
-- AC-4.7.2: Stats запрашиваются агрегацией из agent_stats таблицы
-- AC-4.7.3: running_tasks инкрементируется при route_task(assign), декрементируется при report_outcome
-- AC-4.7.4: Невозможно уйти в running_tasks < 0
+- AC-4.7.1: On startup — agents are loaded from agents.toml and written to SQLite if they do not already exist
+- AC-4.7.2: Stats are queried by aggregation from the agent_stats table
+- AC-4.7.3: running_tasks is incremented on route_task(assign) and decremented on report_outcome
+- AC-4.7.4: running_tasks cannot go below 0
 
 ### 4.8 Config Loader (`arbiter-mcp/src/config.rs`)
 
-**Файлы:**
+**Files:**
 
-- `config/agents.toml` — определения агентов (см. design document, секция 6.2)
-- `config/invariants.toml` — пороги правил (см. design document, секция 6.3)
+- `config/agents.toml` — agent definitions (see design document, section 6.2)
+- `config/invariants.toml` — rule thresholds (see design document, section 6.3)
 
 **Acceptance criteria:**
 
-- AC-4.8.1: Отсутствующий config file → сервер не запускается, stderr: "Config not found: {path}"
-- AC-4.8.2: Невалидный TOML → сервер не запускается, stderr: parse error с line number
-- AC-4.8.3: Неизвестные поля в TOML → игнорируются с warning в stderr
-- AC-4.8.4: Отсутствующие обязательные поля → error с описанием какое поле пропущено
+- AC-4.8.1: Missing config file → the server does not start, stderr: "Config not found: {path}"
+- AC-4.8.2: Invalid TOML → the server does not start, stderr: parse error with line number
+- AC-4.8.3: Unknown fields in TOML → ignored with a warning in stderr
+- AC-4.8.4: Missing required fields → error with a description of which field is missing
 
 ---
 
 ## 5. Error Handling
 
-### 5.1 Категории ошибок
+### 5.1 Error Categories
 
-| Категория | Примеры | Поведение |
+| Category | Examples | Behavior |
 |---|---|---|
-| **Startup fatal** | Дерево не загружается, SQLite не открывается, config невалиден | Сервер не запускается, exit code 1, stderr описывает проблему |
-| **Protocol error** | Невалидный JSON-RPC, неизвестный method | JSON-RPC error response, сервер продолжает работу |
-| **Tool input error** | Невалидные параметры tool | JSON-RPC error -32602 с описанием проблемы |
-| **Runtime recoverable** | SQLite write fails (disk full), agent stats inconsistent | Tool возвращает результат с warning, stderr log |
-| **Runtime degraded** | Дерево не может принять решение (все фичи default) | Fallback на hardcoded round-robin, warning в response |
+| **Startup fatal** | Tree fails to load, SQLite cannot open, config is invalid | Server does not start, exit code 1, stderr describes the problem |
+| **Protocol error** | Invalid JSON-RPC, unknown method | JSON-RPC error response, server continues running |
+| **Tool input error** | Invalid tool parameters | JSON-RPC error -32602 with a description of the problem |
+| **Runtime recoverable** | SQLite write fails (disk full), agent stats inconsistent | Tool returns a result with a warning, stderr log |
+| **Runtime degraded** | Tree cannot make a decision (all features are defaults) | Fallback to hardcoded round-robin, warning in the response |
 
-### 5.2 Конкретные сценарии
+### 5.2 Specific Scenarios
 
-| Сценарий | Поведение |
+| Scenario | Behavior |
 |---|---|
-| Arbiter не запустился (crash при старте) | Orchestrator ловит subprocess exit, логирует stderr, переходит в fallback: round-robin assignment без policy |
-| Arbiter упал во время работы | Orchestrator ловит broken pipe, перезапускает сервер, pending route_task → retry через 1s |
-| SQLite locked (concurrent access) | Retry с backoff (50ms, 100ms, 200ms), max 3 attempts. Если все failed → tool возвращает результат без записи в DB, warning в response |
-| Дерево не загрузилось, но config ОК | Сервер запускается в degraded mode, route_task использует hardcoded rules (round-robin по capable agents), warning в каждом response |
-| Все агенты state=failed | route_task возвращает action="reject", reasoning="All agents unhealthy" |
-| Unknown task_type или language | Используются defaults (task_type=0, language=5="other"), warning в response |
-| report_outcome для неизвестного task_id | Outcome записывается, decision_id=NULL, warning "No matching decision found" |
-| stdin EOF (Orchestrator shutdown) | Сервер flush'ит SQLite WAL, closes cleanly, exit code 0 |
+| Arbiter failed to start (crash on startup) | The Orchestrator catches the subprocess exit, logs stderr, switches to fallback: round-robin assignment without policy |
+| Arbiter crashed during operation | The Orchestrator catches the broken pipe, restarts the server, pending route_task → retry after 1s |
+| SQLite locked (concurrent access) | Retry with backoff (50ms, 100ms, 200ms), max 3 attempts. If all failed → the tool returns a result without writing to the DB, warning in the response |
+| Tree failed to load, but config is OK | The server starts in degraded mode, route_task uses hardcoded rules (round-robin among capable agents), warning in every response |
+| All agents state=failed | route_task returns action="reject", reasoning="All agents unhealthy" |
+| Unknown task_type or language | Defaults are used (task_type=0, language=5="other"), warning in the response |
+| report_outcome for an unknown task_id | The outcome is recorded, decision_id=NULL, warning "No matching decision found" |
+| stdin EOF (Orchestrator shutdown) | The server flushes the SQLite WAL, closes cleanly, exit code 0 |
 
 ### 5.3 Orchestrator fallback mode
 
-Если Arbiter недоступен, Orchestrator переключается на встроенный round-robin:
+If Arbiter is unavailable, the Orchestrator switches to a built-in round-robin:
 
 ```python
 class FallbackScheduler:
@@ -576,14 +576,14 @@ class FallbackScheduler:
 
 ---
 
-## 6. Тестовые сценарии
+## 6. Test Scenarios
 
 ### 6.1 Unit Tests (Rust, `cargo test`)
 
-| ID | Компонент | Сценарий | Expected |
+| ID | Component | Scenario | Expected |
 |---|---|---|---|
-| UT-01 | Feature builder | Полный task JSON → 22-dim vector | Все 22 значения в корректных ranges |
-| UT-02 | Feature builder | Минимальный task (только required fields) → vector | Default values для optional fields |
+| UT-01 | Feature builder | Full task JSON → 22-dim vector | All 22 values within correct ranges |
+| UT-02 | Feature builder | Minimal task (only required fields) → vector | Default values for optional fields |
 | UT-03 | Feature builder | task_type="unknown" → vector | task_type encoded as 6 (other), warning logged |
 | UT-04 | Invariant: scope_isolation | Task scope=["src/main.rs"], running=["src/main.rs"] | passed=false, detail contains "src/main.rs" |
 | UT-05 | Invariant: scope_isolation | Task scope=["src/lib.rs"], running=["src/main.rs"] | passed=true |
@@ -607,19 +607,19 @@ class FallbackScheduler:
 
 ### 6.2 Integration Tests (Rust, `cargo test --test integration`)
 
-| ID | Сценарий | Описание | Expected |
+| ID | Scenario | Description | Expected |
 |---|---|---|---|
 | IT-01 | Happy path | route_task → assign → report_outcome(success) | Decision logged, stats updated, success_rate reflects |
 | IT-02 | Fallback | route_task, primary agent has scope conflict | Fallback agent assigned, fallback_reason populated |
 | IT-03 | All rejected | route_task, all agents excluded | action="reject", all invariant_checks present |
 | IT-04 | Cold start | route_task with zero history | Decision made using bootstrap tree defaults |
-| IT-05 | Stats accumulation | 10× (route_task + report_outcome) | agent_stats correctly accumulated |
-| IT-06 | Agent failure | 6× report_outcome(failure) for same agent in 24h | agent_health invariant fails, agent deprioritized |
-| IT-07 | Concurrent routing | 3× route_task simultaneously (async) | No race conditions, running_tasks consistent |
+| IT-05 | Stats accumulation | 10x (route_task + report_outcome) | agent_stats correctly accumulated |
+| IT-06 | Agent failure | 6x report_outcome(failure) for same agent in 24h | agent_health invariant fails, agent deprioritized |
+| IT-07 | Concurrent routing | 3x route_task simultaneously (async) | No race conditions, running_tasks consistent |
 
 ### 6.3 MCP Protocol Tests (Python, `pytest`)
 
-| ID | Сценарий | Описание | Expected |
+| ID | Scenario | Description | Expected |
 |---|---|---|---|
 | PT-01 | Handshake | initialize → initialized → tools/list | 3 tools returned with correct schemas |
 | PT-02 | Route simple | tools/call route_task with minimal task | Valid response with decision |
@@ -627,7 +627,7 @@ class FallbackScheduler:
 | PT-04 | Invalid params | tools/call with missing required field | JSON-RPC error -32602 |
 | PT-05 | Unknown tool | tools/call with name="nonexistent" | JSON-RPC error -32601 |
 | PT-06 | Server crash recovery | Kill server mid-operation, restart | Orchestrator reconnects, state preserved in SQLite |
-| PT-07 | Large batch | 100× route_task sequentially | All succeed, total time < 2s |
+| PT-07 | Large batch | 100x route_task sequentially | All succeed, total time < 2s |
 
 ### 6.4 Benchmark Tests (Rust, `cargo run --bin arbiter-cli`)
 
@@ -645,7 +645,7 @@ class FallbackScheduler:
 
 ### 7.1 Expert Rules
 
-Минимальный набор правил для холодного старта (расширяемый):
+Minimal set of rules for cold start (extensible):
 
 | # | Conditions | Agent | Rationale |
 |---|---|---|---|
@@ -660,20 +660,20 @@ class FallbackScheduler:
 | 9 | type=test AND complexity ≤ moderate | aider | Test writing is routine |
 | 10 | DEFAULT (all others) | claude_code | Safest fallback |
 
-### 7.2 Генерация
+### 7.2 Generation
 
 `scripts/bootstrap_agent_tree.py`:
 
-1. Разворачивает 10 правил в ~500 обучающих примеров с вариациями
-2. Добавляет шум в agent features (success_rate, duration) для robustness
-3. Тренирует `DecisionTreeClassifier(max_depth=7, min_samples_leaf=10)`
-4. Экспортирует в Arbiter JSON формат (совместимый с `arbiter-core::policy::decision_tree`)
-5. Выводит accuracy, tree stats, confusion matrix
+1. Expands 10 rules into ~500 training examples with variations
+2. Adds noise to agent features (success_rate, duration) for robustness
+3. Trains `DecisionTreeClassifier(max_depth=7, min_samples_leaf=10)`
+4. Exports to the Arbiter JSON format (compatible with `arbiter-core::policy::decision_tree`)
+5. Outputs accuracy, tree stats, confusion matrix
 
 **Acceptance criteria:**
 
-- AC-7.1: Bootstrap tree имеет accuracy > 95% на training data (expert rules)
-- AC-7.2: Экспортированный JSON загружается в Rust без ошибок
+- AC-7.1: The bootstrap tree has accuracy > 95% on training data (expert rules)
+- AC-7.2: The exported JSON loads in Rust without errors
 - AC-7.3: Tree depth ≤ 7, node count ≤ 127
 
 ---
@@ -697,22 +697,22 @@ OPTIONS:
 
 ---
 
-## 9. Зависимости
+## 9. Dependencies
 
 ### 9.1 Rust crates (arbiter-mcp)
 
 | Crate | Version | Purpose |
 |---|---|---|
 | `serde` + `serde_json` | 1.x | JSON serialization |
-| `tokio` | 1.x | Async runtime (для stdin/stdout) |
+| `tokio` | 1.x | Async runtime (for stdin/stdout) |
 | `rusqlite` | 0.31+ | SQLite (bundled feature) |
 | `toml` | 0.8+ | Config parsing |
 | `tracing` + `tracing-subscriber` | 0.1 / 0.3 | Structured logging (stderr) |
 | `chrono` | 0.4+ | Timestamps |
 | `arbiter-core` | workspace | DT inference, invariants, metrics |
 
-Не добавляем MCP SDK — реализуем протокол вручную (он простой: JSON-RPC 2.0 over stdio,
-3 метода). Это убирает тяжёлую dependency и даёт полный контроль.
+We do not add an MCP SDK — we implement the protocol manually (it is simple: JSON-RPC 2.0
+over stdio, 3 methods). This removes a heavy dependency and gives us full control.
 
 ### 9.2 Python (orchestrator/)
 
@@ -720,7 +720,7 @@ OPTIONS:
 |---|---|
 | `asyncio` | Subprocess management |
 | `json` | MCP protocol |
-| `sqlite3` | Orchestrator's own DB (не Arbiter DB) |
+| `sqlite3` | Orchestrator's own DB (not Arbiter DB) |
 | `pytest` + `pytest-asyncio` | MCP protocol tests |
 
 ### 9.3 Python (scripts/)
@@ -735,7 +735,7 @@ OPTIONS:
 
 ## 10. Deployment
 
-### 10.1 Claude Desktop / Claude Code интеграция
+### 10.1 Claude Desktop / Claude Code Integration
 
 ```json
 {
@@ -752,7 +752,7 @@ OPTIONS:
 }
 ```
 
-### 10.2 Orchestrator daemon интеграция
+### 10.2 Orchestrator Daemon Integration
 
 ```python
 from arbiter_client import ArbiterClient
@@ -771,18 +771,18 @@ decision = await client.route_task(task_id="task-1", task={...})
 
 ## 11. Definition of Done
 
-MVP считается завершённым когда:
+The MVP is considered complete when:
 
-- [ ] `cargo build --release` компилируется без warnings
-- [ ] `cargo test` — все 22 unit tests pass
-- [ ] `cargo test --test integration` — все 7 integration tests pass
-- [ ] `pytest orchestrator/tests/` — все 7 MCP protocol tests pass
-- [ ] `arbiter --help` выводит usage
-- [ ] `arbiter` запускается, принимает MCP handshake, отвечает на tools/list
-- [ ] `route_task` возвращает корректное решение для каждого из 10 expert rules
-- [ ] `report_outcome` записывает в SQLite и обновляет stats
-- [ ] `get_agent_status` возвращает корректную статистику после серии route+report
+- [ ] `cargo build --release` compiles without warnings
+- [ ] `cargo test` — all 22 unit tests pass
+- [ ] `cargo test --test integration` — all 7 integration tests pass
+- [ ] `pytest orchestrator/tests/` — all 7 MCP protocol tests pass
+- [ ] `arbiter --help` prints usage
+- [ ] `arbiter` starts, accepts the MCP handshake, and responds to tools/list
+- [ ] `route_task` returns a correct decision for each of the 10 expert rules
+- [ ] `report_outcome` writes to SQLite and updates stats
+- [ ] `get_agent_status` returns correct statistics after a series of route+report
 - [ ] Benchmark: > 10K decisions/sec in-process, < 5ms e2e over stdio
-- [ ] Bootstrap tree генерируется, экспортируется, загружается в Rust
-- [ ] README.md с quick start, architecture, примерами использования
-- [ ] Код ревью: нет unsafe, нет unwrap() в production paths, все errors handled
+- [ ] Bootstrap tree is generated, exported, and loaded in Rust
+- [ ] README.md with quick start, architecture, and usage examples
+- [ ] Code review: no unsafe, no unwrap() in production paths, all errors handled
