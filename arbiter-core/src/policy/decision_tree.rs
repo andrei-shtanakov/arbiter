@@ -128,10 +128,29 @@ impl DecisionTree {
     /// Returns a `PredictionResult` with the predicted class index,
     /// confidence score, and the decision path through the tree.
     ///
+    /// Internally collects raw path entries during traversal (no
+    /// allocations from `format!`) and converts them to strings only
+    /// once, just before returning.
+    ///
     /// # Errors
     /// Returns an error if the feature vector length does not match
     /// `n_features`, or if any feature value is non-finite (NaN or infinity).
     pub fn predict(&self, features: &[f64]) -> Result<PredictionResult> {
+        /// Raw decision path entry (allocation-free during traversal).
+        enum PathEntry {
+            Node {
+                node_idx: usize,
+                feat_idx: usize,
+                feat_val: f64,
+                threshold: f64,
+                went_left: bool,
+            },
+            Leaf {
+                class_name_idx: usize,
+                confidence: f64,
+            },
+        }
+
         if features.len() != self.n_features {
             bail!(
                 "feature vector length {} does not match tree n_features {}",
@@ -145,7 +164,9 @@ impl DecisionTree {
         }
 
         let mut node_idx: usize = 0;
-        let mut path = Vec::new();
+        let mut raw_path = Vec::new();
+        let result_class: usize;
+        let result_confidence: f64;
 
         loop {
             let node = &self.nodes[node_idx];
@@ -158,48 +179,106 @@ impl DecisionTree {
                     .value
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .max_by(|(_, a), (_, b)| {
+                        a.partial_cmp(b)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
                     .context("empty value vector in leaf node")?;
 
-                let confidence = if total > 0.0 { max_val / total } else { 0.0 };
+                let confidence =
+                    if total > 0.0 { max_val / total } else { 0.0 };
 
-                let class_name = self
-                    .class_names
-                    .get(class)
-                    .cloned()
-                    .unwrap_or_else(|| format!("class_{class}"));
-                path.push(format!("leaf: {class_name} (confidence={confidence:.3})"));
-
-                return Ok(PredictionResult {
-                    class,
+                raw_path.push(PathEntry::Leaf {
+                    class_name_idx: class,
                     confidence,
-                    path,
                 });
+
+                result_class = class;
+                result_confidence = confidence;
+                break;
             }
 
             // Internal node: traverse left or right
             let feat_idx = node.feature as usize;
             let feat_val = features[feat_idx];
-            let feat_name = self
-                .feature_names
-                .get(feat_idx)
-                .cloned()
-                .unwrap_or_else(|| format!("feature[{feat_idx}]"));
 
             if feat_val <= node.threshold {
-                path.push(format!(
-                    "node {node_idx}: {feat_name} ({feat_val:.2}) <= {:.2} -> left",
-                    node.threshold
-                ));
+                raw_path.push(PathEntry::Node {
+                    node_idx,
+                    feat_idx,
+                    feat_val,
+                    threshold: node.threshold,
+                    went_left: true,
+                });
                 node_idx = node.left as usize;
             } else {
-                path.push(format!(
-                    "node {node_idx}: {feat_name} ({feat_val:.2}) > {:.2} -> right",
-                    node.threshold
-                ));
+                raw_path.push(PathEntry::Node {
+                    node_idx,
+                    feat_idx,
+                    feat_val,
+                    threshold: node.threshold,
+                    went_left: false,
+                });
                 node_idx = node.right as usize;
             }
         }
+
+        // Convert raw path entries to formatted strings.
+        let path: Vec<String> = raw_path
+            .iter()
+            .map(|entry| match entry {
+                PathEntry::Node {
+                    node_idx,
+                    feat_idx,
+                    feat_val,
+                    threshold,
+                    went_left,
+                } => {
+                    let feat_name = self
+                        .feature_names
+                        .get(*feat_idx)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            format!("feature[{feat_idx}]")
+                        });
+                    if *went_left {
+                        format!(
+                            "node {node_idx}: {feat_name} \
+                             ({feat_val:.2}) <= {threshold:.2} \
+                             -> left"
+                        )
+                    } else {
+                        format!(
+                            "node {node_idx}: {feat_name} \
+                             ({feat_val:.2}) > {threshold:.2} \
+                             -> right"
+                        )
+                    }
+                }
+                PathEntry::Leaf {
+                    class_name_idx,
+                    confidence,
+                } => {
+                    let class_name = self
+                        .class_names
+                        .get(*class_name_idx)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            format!("class_{class_name_idx}")
+                        });
+                    format!(
+                        "leaf: {class_name} \
+                         (confidence={confidence:.3})"
+                    )
+                }
+            })
+            .collect();
+
+        Ok(PredictionResult {
+            class: result_class,
+            confidence: result_confidence,
+            path,
+        })
     }
 
     /// Number of nodes in the tree.
