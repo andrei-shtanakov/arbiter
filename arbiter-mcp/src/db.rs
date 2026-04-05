@@ -236,7 +236,7 @@ impl Database {
     /// Find a decision record by task_id.
     #[allow(dead_code)] // Used by integration tests.
     pub fn find_decision_by_task(&self, task_id: &str) -> Result<Option<DecisionRecord>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT task_id, task_json, feature_vector,
                     constraints_json, chosen_agent, action,
                     confidence, decision_path,
@@ -378,7 +378,7 @@ impl Database {
 
     /// Get aggregated stats for an agent across all task types and languages.
     pub fn get_agent_stats(&self, agent_id: &str) -> Result<AgentStats> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT
                 COALESCE(SUM(total_tasks), 0),
                 COALESCE(SUM(successful_tasks), 0),
@@ -440,7 +440,7 @@ impl Database {
         agent_id: &str,
     ) -> Result<(Vec<(String, i64, i64)>, Vec<(String, i64, i64)>)> {
         // Aggregate by language
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT language, SUM(total_tasks), SUM(successful_tasks)
              FROM agent_stats WHERE agent_id = ?1
              GROUP BY language",
@@ -457,7 +457,7 @@ impl Database {
             .context("Failed to query stats by language")?;
 
         // Aggregate by task type
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT task_type, SUM(total_tasks), SUM(successful_tasks)
              FROM agent_stats WHERE agent_id = ?1
              GROUP BY task_type",
