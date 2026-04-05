@@ -3,7 +3,9 @@
 //! Loads agent definitions from TOML config, upserts them into the database,
 //! and provides runtime queries for agent state, stats, and load.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use tracing::info;
@@ -11,6 +13,19 @@ use tracing::info;
 use crate::config::AgentConfig;
 use crate::db::Database;
 use crate::features::AgentInfo;
+
+// ---------------------------------------------------------------------------
+// Cache internals
+// ---------------------------------------------------------------------------
+
+/// Cached agent info entry with expiration tracking.
+struct CachedAgentInfo {
+    info: AgentInfo,
+    cached_at: Instant,
+}
+
+/// Time-to-live for cached agent info entries.
+const CACHE_TTL: Duration = Duration::from_secs(1);
 
 // ---------------------------------------------------------------------------
 // AgentRegistry
@@ -24,6 +39,7 @@ use crate::features::AgentInfo;
 pub struct AgentRegistry<'a> {
     db: &'a Database,
     configs: HashMap<String, AgentConfig>,
+    cache: RefCell<HashMap<String, CachedAgentInfo>>,
 }
 
 impl<'a> AgentRegistry<'a> {
@@ -44,6 +60,7 @@ impl<'a> AgentRegistry<'a> {
         Ok(Self {
             db,
             configs: agents.clone(),
+            cache: RefCell::new(HashMap::new()),
         })
     }
 
@@ -51,6 +68,16 @@ impl<'a> AgentRegistry<'a> {
     ///
     /// Returns `None` if the agent ID is unknown.
     pub fn get_agent_info(&self, agent_id: &str) -> Result<Option<AgentInfo>> {
+        // Check cache first.
+        {
+            let cache = self.cache.borrow();
+            if let Some(entry) = cache.get(agent_id) {
+                if entry.cached_at.elapsed() < CACHE_TTL {
+                    return Ok(Some(entry.info.clone()));
+                }
+            }
+        }
+
         let config = match self.configs.get(agent_id) {
             Some(c) => c.clone(),
             None => return Ok(None),
@@ -76,7 +103,7 @@ impl<'a> AgentRegistry<'a> {
             None
         };
 
-        Ok(Some(AgentInfo {
+        let info = AgentInfo {
             agent_id: agent_id.to_string(),
             config,
             running_tasks,
@@ -84,7 +111,28 @@ impl<'a> AgentRegistry<'a> {
             avg_duration_min: avg_duration,
             avg_cost_usd: avg_cost,
             recent_failures,
-        }))
+        };
+
+        // Update cache.
+        self.cache.borrow_mut().insert(
+            agent_id.to_string(),
+            CachedAgentInfo {
+                info: info.clone(),
+                cached_at: Instant::now(),
+            },
+        );
+
+        Ok(Some(info))
+    }
+
+    /// Invalidate the cached entry for a specific agent.
+    pub fn invalidate_cache(&self, agent_id: &str) {
+        self.cache.borrow_mut().remove(agent_id);
+    }
+
+    /// Invalidate all cached agent entries.
+    pub fn invalidate_all_cache(&self) {
+        self.cache.borrow_mut().clear();
     }
 
     /// Get agent info for all registered agents.
@@ -256,11 +304,13 @@ mod tests {
         let registry = AgentRegistry::new(&db, &agents).unwrap();
 
         db.increment_running_tasks("claude_code").unwrap();
+        registry.invalidate_cache("claude_code");
 
         let info = registry.get_agent_info("claude_code").unwrap().unwrap();
         assert_eq!(info.running_tasks, 1);
 
         db.decrement_running_tasks("claude_code").unwrap();
+        registry.invalidate_cache("claude_code");
         let info = registry.get_agent_info("claude_code").unwrap().unwrap();
         assert_eq!(info.running_tasks, 0);
     }
@@ -305,5 +355,38 @@ mod tests {
 
         // running_tasks should be preserved (upsert doesn't reset them).
         assert_eq!(info.running_tasks, 2);
+    }
+
+    // -- Cache tests --
+
+    #[test]
+    fn cache_hit_avoids_stale_data_within_ttl() {
+        let (db, agents) = setup();
+        let registry = AgentRegistry::new(&db, &agents).unwrap();
+
+        // First call populates cache
+        let info1 = registry.get_agent_info("claude_code").unwrap().unwrap();
+
+        // Change DB state
+        db.increment_running_tasks("claude_code").unwrap();
+
+        // Second call within TTL should return cached (stale) data
+        let info2 = registry.get_agent_info("claude_code").unwrap().unwrap();
+        assert_eq!(info1.running_tasks, info2.running_tasks);
+    }
+
+    #[test]
+    fn invalidate_cache_forces_refresh() {
+        let (db, agents) = setup();
+        let registry = AgentRegistry::new(&db, &agents).unwrap();
+
+        let info1 = registry.get_agent_info("claude_code").unwrap().unwrap();
+        assert_eq!(info1.running_tasks, 0);
+
+        db.increment_running_tasks("claude_code").unwrap();
+        registry.invalidate_cache("claude_code");
+
+        let info2 = registry.get_agent_info("claude_code").unwrap().unwrap();
+        assert_eq!(info2.running_tasks, 1);
     }
 }
