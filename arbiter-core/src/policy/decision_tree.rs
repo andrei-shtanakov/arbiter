@@ -179,14 +179,10 @@ impl DecisionTree {
                     .value
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| {
-                        a.partial_cmp(b)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                     .context("empty value vector in leaf node")?;
 
-                let confidence =
-                    if total > 0.0 { max_val / total } else { 0.0 };
+                let confidence = if total > 0.0 { max_val / total } else { 0.0 };
 
                 raw_path.push(PathEntry::Leaf {
                     class_name_idx: class,
@@ -238,9 +234,7 @@ impl DecisionTree {
                         .feature_names
                         .get(*feat_idx)
                         .cloned()
-                        .unwrap_or_else(|| {
-                            format!("feature[{feat_idx}]")
-                        });
+                        .unwrap_or_else(|| format!("feature[{feat_idx}]"));
                     if *went_left {
                         format!(
                             "node {node_idx}: {feat_name} \
@@ -263,9 +257,7 @@ impl DecisionTree {
                         .class_names
                         .get(*class_name_idx)
                         .cloned()
-                        .unwrap_or_else(|| {
-                            format!("class_{class_name_idx}")
-                        });
+                        .unwrap_or_else(|| format!("class_{class_name_idx}"));
                     format!(
                         "leaf: {class_name} \
                          (confidence={confidence:.3})"
