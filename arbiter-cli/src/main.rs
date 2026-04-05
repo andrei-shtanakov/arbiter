@@ -183,6 +183,8 @@ fn bench_route_throughput() -> Result<()> {
         budget_remaining_usd: Some(100.0),
         total_pending_tasks: Some(5),
         running_tasks: vec![],
+        retry_count: None,
+        calls_per_minute: None,
     };
 
     // Warm up
@@ -272,6 +274,8 @@ fn bench_route_latency_p99() -> Result<()> {
         budget_remaining_usd: Some(50.0),
         total_pending_tasks: Some(3),
         running_tasks: vec![],
+        retry_count: None,
+        calls_per_minute: None,
     };
 
     for i in 0..n {
@@ -444,6 +448,8 @@ fn bench_memory_usage() -> Result<()> {
         budget_remaining_usd: Some(100.0),
         total_pending_tasks: Some(5),
         running_tasks: vec![],
+        retry_count: None,
+        calls_per_minute: None,
     };
 
     let agent_ids = ["claude_code", "codex_cli", "aider"];

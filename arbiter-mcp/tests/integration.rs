@@ -232,6 +232,8 @@ fn it_01_happy_path() {
         budget_remaining_usd: Some(10.0),
         total_pending_tasks: Some(2),
         running_tasks: vec![],
+        retry_count: None,
+        calls_per_minute: None,
     };
 
     let start = std::time::Instant::now();
@@ -372,6 +374,8 @@ fn it_02_fallback_on_scope_conflict() {
             scope: vec!["src/main.py".to_string()],
             branch: None,
         }],
+        retry_count: None,
+        calls_per_minute: None,
     };
 
     let result = route_task::execute(
@@ -468,6 +472,8 @@ fn it_03_all_rejected() {
         budget_remaining_usd: Some(10.0),
         total_pending_tasks: None,
         running_tasks: vec![],
+        retry_count: None,
+        calls_per_minute: None,
     };
 
     let result = route_task::execute(
@@ -560,6 +566,8 @@ fn it_04_cold_start() {
         budget_remaining_usd: Some(8.50),
         total_pending_tasks: Some(3),
         running_tasks: vec![],
+        retry_count: None,
+        calls_per_minute: None,
     };
 
     let result = route_task::execute(
@@ -882,6 +890,8 @@ fn it_07_concurrent_routing_3x() {
                 budget_remaining_usd: Some(10.0),
                 total_pending_tasks: Some(3),
                 running_tasks: vec![],
+                retry_count: None,
+                calls_per_minute: None,
             };
 
             // Synchronize: all threads start routing at the same time
@@ -1249,6 +1259,8 @@ fn feature_vector_and_dt_determinism() {
             budget_remaining_usd: Some(8.50),
             total_pending_tasks: Some(3),
             running_tasks: vec![],
+            retry_count: None,
+            calls_per_minute: None,
         },
         total_running_tasks: 3,
         time_of_day_hour: 14,

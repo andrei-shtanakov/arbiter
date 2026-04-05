@@ -96,8 +96,8 @@ fn to_system_context(constraints: &Constraints, total_running: u32) -> SystemCon
         running_scopes,
         running_branches,
         budget_remaining_usd: constraints.budget_remaining_usd,
-        retry_count: 0,
-        calls_per_minute: 0,
+        retry_count: constraints.retry_count.unwrap_or(0),
+        calls_per_minute: constraints.calls_per_minute.unwrap_or(0),
     }
 }
 
@@ -660,6 +660,8 @@ mod tests {
             budget_remaining_usd: Some(10.0),
             total_pending_tasks: None,
             running_tasks: vec![],
+            retry_count: None,
+            calls_per_minute: None,
         }
     }
 
@@ -946,6 +948,8 @@ mod tests {
             budget_remaining_usd: Some(10.0),
             total_pending_tasks: Some(2),
             running_tasks: vec![],
+            retry_count: None,
+            calls_per_minute: None,
         };
 
         let start = std::time::Instant::now();
@@ -1070,6 +1074,8 @@ mod tests {
                 scope: vec!["src/main.py".to_string()],
                 branch: None,
             }],
+            retry_count: None,
+            calls_per_minute: None,
         };
 
         let result = execute(
@@ -1156,6 +1162,8 @@ mod tests {
             budget_remaining_usd: Some(10.0),
             total_pending_tasks: None,
             running_tasks: vec![],
+            retry_count: None,
+            calls_per_minute: None,
         };
 
         let result = execute(
@@ -1237,6 +1245,8 @@ mod tests {
             budget_remaining_usd: Some(8.50),
             total_pending_tasks: Some(3),
             running_tasks: vec![],
+            retry_count: None,
+            calls_per_minute: None,
         };
 
         let result = execute(

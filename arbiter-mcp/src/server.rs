@@ -106,7 +106,9 @@ fn tool_schemas() -> Value {
                                 "excluded_agents": { "type": "array", "items": { "type": "string" } },
                                 "budget_remaining_usd": { "type": "number" },
                                 "total_pending_tasks": { "type": "integer" },
-                                "running_tasks": { "type": "array" }
+                                "running_tasks": { "type": "array" },
+                                "retry_count": { "type": "integer", "description": "Number of retries for this task so far" },
+                                "calls_per_minute": { "type": "integer", "description": "Current API calls per minute" }
                             }
                         }
                     },
@@ -476,6 +478,8 @@ impl<'a> McpServer<'a> {
                 budget_remaining_usd: None,
                 total_pending_tasks: None,
                 running_tasks: vec![],
+                retry_count: None,
+                calls_per_minute: None,
             });
 
         // Execute route_task logic

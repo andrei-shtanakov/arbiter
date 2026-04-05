@@ -218,6 +218,12 @@ pub struct Constraints {
     /// Tasks currently being executed by agents.
     #[serde(default)]
     pub running_tasks: Vec<RunningTask>,
+    /// Number of retries for this task so far.
+    #[serde(default)]
+    pub retry_count: Option<u32>,
+    /// Current API calls per minute across all agents.
+    #[serde(default)]
+    pub calls_per_minute: Option<u32>,
 }
 
 /// A task currently being executed by an agent (used for scope/branch conflict checks).
@@ -624,6 +630,8 @@ mod tests {
                 scope: vec!["src/".to_string()],
                 branch: Some("fix/bug-42".to_string()),
             }],
+            retry_count: None,
+            calls_per_minute: None,
         };
         let json = serde_json::to_string(&constraints).unwrap();
         let back: Constraints = serde_json::from_str(&json).unwrap();
@@ -639,6 +647,8 @@ mod tests {
         assert!(constraints.budget_remaining_usd.is_none());
         assert!(constraints.total_pending_tasks.is_none());
         assert!(constraints.running_tasks.is_empty());
+        assert!(constraints.retry_count.is_none());
+        assert!(constraints.calls_per_minute.is_none());
     }
 
     #[test]
