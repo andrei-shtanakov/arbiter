@@ -135,6 +135,16 @@ impl Database {
         conn.pragma_update(None, "foreign_keys", "ON")
             .context("Failed to enable foreign keys")?;
 
+        // Performance PRAGMAs (safe with WAL mode).
+        conn.pragma_update(None, "synchronous", "NORMAL")
+            .context("Failed to set synchronous=NORMAL")?;
+
+        conn.pragma_update(None, "cache_size", -8000_i64)
+            .context("Failed to set cache_size")?;
+
+        conn.pragma_update(None, "mmap_size", 67108864_i64)
+            .context("Failed to set mmap_size")?;
+
         debug!(path = %path.display(), "database opened");
         Ok(Self { conn })
     }
@@ -699,6 +709,7 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_task ON outcomes(task_id);
 CREATE INDEX IF NOT EXISTS idx_outcomes_agent ON outcomes(agent_id);
 CREATE INDEX IF NOT EXISTS idx_outcomes_status ON outcomes(status);
 CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
+CREATE INDEX IF NOT EXISTS idx_agent_stats_agent_type ON agent_stats(agent_id, task_type);
 ";
 
 // ---------------------------------------------------------------------------
@@ -804,7 +815,7 @@ mod tests {
             .collect::<std::result::Result<_, _>>()
             .unwrap();
 
-        assert_eq!(indices.len(), 7);
+        assert_eq!(indices.len(), 8);
         assert!(indices.contains(&"idx_decisions_task".to_string()));
         assert!(indices.contains(&"idx_decisions_agent".to_string()));
         assert!(indices.contains(&"idx_decisions_ts".to_string()));
@@ -812,6 +823,7 @@ mod tests {
         assert!(indices.contains(&"idx_outcomes_agent".to_string()));
         assert!(indices.contains(&"idx_outcomes_status".to_string()));
         assert!(indices.contains(&"idx_outcomes_ts".to_string()));
+        assert!(indices.contains(&"idx_agent_stats_agent_type".to_string()));
     }
 
     #[test]
