@@ -131,6 +131,25 @@ mod tests {
     }
 
     #[test]
+    fn evaluate_filters_out_failed_predictions() {
+        let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
+
+        // One valid, one with wrong-length features (will fail predict)
+        // We can't easily pass wrong-length since it's [f64; 22], so use NaN instead
+        let mut nan_features = make_features(3.0);
+        nan_features[0] = f64::NAN;
+
+        let vectors = vec![
+            ("good_agent".to_string(), make_features(3.0)),
+            ("bad_agent".to_string(), nan_features),
+        ];
+
+        let results = evaluate_for_agents(&tree, &vectors);
+        assert_eq!(results.len(), 1, "bad agent should be filtered out");
+        assert_eq!(results[0].0, "good_agent");
+    }
+
+    #[test]
     fn evaluate_deterministic() {
         let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
         let vectors = vec![

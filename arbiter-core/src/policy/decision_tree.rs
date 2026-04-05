@@ -130,7 +130,7 @@ impl DecisionTree {
     ///
     /// # Errors
     /// Returns an error if the feature vector length does not match
-    /// `n_features`, or if any feature value is NaN.
+    /// `n_features`, or if any feature value is non-finite (NaN or infinity).
     pub fn predict(&self, features: &[f64]) -> Result<PredictionResult> {
         if features.len() != self.n_features {
             bail!(
@@ -140,8 +140,8 @@ impl DecisionTree {
             );
         }
 
-        if let Some(idx) = features.iter().position(|f| f.is_nan()) {
-            bail!("feature vector contains NaN at index {idx}");
+        if let Some(idx) = features.iter().position(|f| !f.is_finite()) {
+            bail!("feature vector contains non-finite value at index {idx}");
         }
 
         let mut node_idx: usize = 0;
@@ -371,7 +371,14 @@ mod tests {
     fn predict_nan_feature_returns_error() {
         let tree = DecisionTree::from_json(&minimal_tree_json()).unwrap();
         let err = tree.predict(&[1.0, f64::NAN, 0.0]).unwrap_err();
-        assert!(err.to_string().contains("NaN at index 1"));
+        assert!(err.to_string().contains("non-finite"));
+    }
+
+    #[test]
+    fn predict_infinity_feature_returns_error() {
+        let tree = DecisionTree::from_json(&minimal_tree_json()).unwrap();
+        let err = tree.predict(&[f64::INFINITY, 0.0, 0.0]).unwrap_err();
+        assert!(err.to_string().contains("non-finite"));
     }
 
     #[test]
