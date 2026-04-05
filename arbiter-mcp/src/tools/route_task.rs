@@ -62,10 +62,23 @@ fn to_thresholds(config: &InvariantConfig) -> InvariantThresholds {
 }
 
 /// Build an AgentContext from AgentInfo for invariant checks.
-fn to_agent_context(info: &AgentInfo) -> AgentContext {
+///
+/// Computes `AgentState` dynamically from runtime metrics:
+/// - `Failed` if `recent_failures > max_failures_24h`
+/// - `Busy` if `running_tasks >= max_concurrent`
+/// - `Active` otherwise
+fn to_agent_context(info: &AgentInfo, max_failures_24h: u32) -> AgentContext {
+    let state = if info.recent_failures > max_failures_24h {
+        AgentState::Failed
+    } else if info.running_tasks >= info.config.max_concurrent {
+        AgentState::Busy
+    } else {
+        AgentState::Active
+    };
+
     AgentContext {
         agent_id: info.agent_id.clone(),
-        state: AgentState::Active,
+        state,
         running_tasks: info.running_tasks,
         max_concurrent: info.config.max_concurrent,
         supports_languages: info.config.supports_languages.clone(),
@@ -272,7 +285,10 @@ pub fn execute(
             Some(info) => info,
             None => continue,
         };
-        let agent_ctx = to_agent_context(agent_info);
+        let agent_ctx = to_agent_context(
+            agent_info,
+            invariant_config.agent_health.max_failures_24h,
+        );
         let invariant_results = check_all_invariants(task, &agent_ctx, &system_ctx, &thresholds);
 
         if !has_critical_failure(&invariant_results) {
@@ -1505,5 +1521,84 @@ mod tests {
         assert_eq!(warnings.len(), 2);
         assert!(warnings[0].as_str().unwrap().contains("round-robin"));
         assert!(warnings[1].as_str().unwrap().contains("magic"));
+    }
+
+    // =================================================================
+    // to_agent_context dynamic state computation tests
+    // =================================================================
+
+    #[test]
+    fn to_agent_context_busy_at_capacity() {
+        use crate::config::AgentConfig;
+        use crate::features::AgentInfo;
+
+        let info = AgentInfo {
+            agent_id: "test".to_string(),
+            config: AgentConfig {
+                display_name: "Test".to_string(),
+                supports_languages: vec!["python".to_string()],
+                supports_types: vec!["bugfix".to_string()],
+                max_concurrent: 2,
+                cost_per_hour: 0.10,
+                avg_duration_min: 10.0,
+            },
+            running_tasks: 2,
+            success_rate: Some(0.8),
+            avg_duration_min: Some(10.0),
+            avg_cost_usd: Some(0.10),
+            recent_failures: 0,
+        };
+        let ctx = to_agent_context(&info, 5);
+        assert_eq!(ctx.state, AgentState::Busy);
+    }
+
+    #[test]
+    fn to_agent_context_failed_on_high_failures() {
+        use crate::config::AgentConfig;
+        use crate::features::AgentInfo;
+
+        let info = AgentInfo {
+            agent_id: "test".to_string(),
+            config: AgentConfig {
+                display_name: "Test".to_string(),
+                supports_languages: vec!["python".to_string()],
+                supports_types: vec!["bugfix".to_string()],
+                max_concurrent: 2,
+                cost_per_hour: 0.10,
+                avg_duration_min: 10.0,
+            },
+            running_tasks: 0,
+            success_rate: Some(0.5),
+            avg_duration_min: Some(10.0),
+            avg_cost_usd: Some(0.10),
+            recent_failures: 6,
+        };
+        let ctx = to_agent_context(&info, 5);
+        assert_eq!(ctx.state, AgentState::Failed);
+    }
+
+    #[test]
+    fn to_agent_context_active_when_healthy() {
+        use crate::config::AgentConfig;
+        use crate::features::AgentInfo;
+
+        let info = AgentInfo {
+            agent_id: "test".to_string(),
+            config: AgentConfig {
+                display_name: "Test".to_string(),
+                supports_languages: vec!["python".to_string()],
+                supports_types: vec!["bugfix".to_string()],
+                max_concurrent: 2,
+                cost_per_hour: 0.10,
+                avg_duration_min: 10.0,
+            },
+            running_tasks: 1,
+            success_rate: Some(0.9),
+            avg_duration_min: Some(10.0),
+            avg_cost_usd: Some(0.10),
+            recent_failures: 0,
+        };
+        let ctx = to_agent_context(&info, 5);
+        assert_eq!(ctx.state, AgentState::Active);
     }
 }
