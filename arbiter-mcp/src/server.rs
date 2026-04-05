@@ -547,6 +547,44 @@ impl<'a> McpServer<'a> {
             }
         };
 
+        // Validate required fields
+        if args.get("task_id").and_then(|v| v.as_str()).is_none() {
+            return JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: req.id.clone(),
+                result: None,
+                error: Some(JsonRpcError {
+                    code: INVALID_PARAMS,
+                    message: "Missing required field: task_id".to_string(),
+                    data: None,
+                }),
+            };
+        }
+        if args.get("agent_id").and_then(|v| v.as_str()).is_none() {
+            return JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: req.id.clone(),
+                result: None,
+                error: Some(JsonRpcError {
+                    code: INVALID_PARAMS,
+                    message: "Missing required field: agent_id".to_string(),
+                    data: None,
+                }),
+            };
+        }
+        if args.get("status").and_then(|v| v.as_str()).is_none() {
+            return JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: req.id.clone(),
+                result: None,
+                error: Some(JsonRpcError {
+                    code: INVALID_PARAMS,
+                    message: "Missing required field: status".to_string(),
+                    data: None,
+                }),
+            };
+        }
+
         match report_outcome::execute(args, self.db, &self.config) {
             Ok(result) => {
                 let response_json = report_outcome::result_to_json(&result);
@@ -569,7 +607,7 @@ impl<'a> McpServer<'a> {
                     id: req.id.clone(),
                     result: None,
                     error: Some(JsonRpcError {
-                        code: INVALID_PARAMS,
+                        code: -32000,
                         message: format!("{e}"),
                         data: None,
                     }),
@@ -611,7 +649,7 @@ impl<'a> McpServer<'a> {
                     id: req.id.clone(),
                     result: None,
                     error: Some(JsonRpcError {
-                        code: INVALID_PARAMS,
+                        code: -32000,
                         message: format!("{e}"),
                         data: None,
                     }),
@@ -1069,5 +1107,43 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resp.id, Some(serde_json::json!("abc")));
+    }
+
+    #[test]
+    fn report_outcome_error_uses_server_error_code() {
+        let (db, tree, config) = setup_server();
+        let registry = AgentRegistry::new(&db, &config.agents).unwrap();
+        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+
+        // Send report_outcome with invalid status (should fail with business logic error)
+        let resp = dispatch(
+            &mut server,
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"report_outcome","arguments":{"task_id":"test-task","agent_id":"claude-code","status":"invalid_status"}}}"#,
+        )
+        .unwrap();
+
+        assert!(resp.error.is_some());
+        let err = resp.error.unwrap();
+        assert_eq!(err.code, -32000);
+        assert!(err.message.contains("status") || err.message.contains("invalid"));
+    }
+
+    #[test]
+    fn get_agent_status_error_uses_server_error_code() {
+        let (db, tree, config) = setup_server();
+        let registry = AgentRegistry::new(&db, &config.agents).unwrap();
+        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+
+        // Send get_agent_status with unknown agent_id (should fail with business logic error)
+        let resp = dispatch(
+            &mut server,
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_agent_status","arguments":{"agent_id":"unknown-agent-12345"}}}"#,
+        )
+        .unwrap();
+
+        assert!(resp.error.is_some());
+        let err = resp.error.unwrap();
+        assert_eq!(err.code, -32000);
+        assert!(err.message.contains("agent not found"));
     }
 }
