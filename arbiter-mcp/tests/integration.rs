@@ -1343,9 +1343,9 @@ fn feature_vector_and_dt_determinism() {
 
     // Run DT inference and verify determinism
     for fv in &vectors {
-        let pred1 = tree.predict(fv);
-        let pred2 = tree.predict(fv);
-        let pred3 = tree.predict(fv);
+        let pred1 = tree.predict(fv).unwrap();
+        let pred2 = tree.predict(fv).unwrap();
+        let pred3 = tree.predict(fv).unwrap();
 
         // Same input always produces same output
         assert_eq!(

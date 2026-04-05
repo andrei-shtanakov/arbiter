@@ -128,16 +128,21 @@ impl DecisionTree {
     /// Returns a `PredictionResult` with the predicted class index,
     /// confidence score, and the decision path through the tree.
     ///
-    /// # Panics
-    /// Panics if the feature vector length does not match `n_features`.
-    pub fn predict(&self, features: &[f64]) -> PredictionResult {
-        assert_eq!(
-            features.len(),
-            self.n_features,
-            "feature vector length {} does not match tree n_features {}",
-            features.len(),
-            self.n_features
-        );
+    /// # Errors
+    /// Returns an error if the feature vector length does not match
+    /// `n_features`, or if any feature value is NaN.
+    pub fn predict(&self, features: &[f64]) -> Result<PredictionResult> {
+        if features.len() != self.n_features {
+            bail!(
+                "feature vector length {} does not match tree n_features {}",
+                features.len(),
+                self.n_features
+            );
+        }
+
+        if let Some(idx) = features.iter().position(|f| f.is_nan()) {
+            bail!("feature vector contains NaN at index {idx}");
+        }
 
         let mut node_idx: usize = 0;
         let mut path = Vec::new();
@@ -153,8 +158,10 @@ impl DecisionTree {
                     .value
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-                    .unwrap();
+                    .max_by(|(_, a), (_, b)| {
+                        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .context("empty value vector in leaf node")?;
 
                 let confidence = if total > 0.0 { max_val / total } else { 0.0 };
 
@@ -165,11 +172,11 @@ impl DecisionTree {
                     .unwrap_or_else(|| format!("class_{class}"));
                 path.push(format!("leaf: {class_name} (confidence={confidence:.3})"));
 
-                return PredictionResult {
+                return Ok(PredictionResult {
                     class,
                     confidence,
                     path,
-                };
+                });
             }
 
             // Internal node: traverse left or right
@@ -287,7 +294,7 @@ mod tests {
     fn predict_left_branch() {
         let tree = DecisionTree::from_json(&minimal_tree_json()).unwrap();
         // feature[0] = 3.0 <= 5.0, so go left -> class "cat"
-        let result = tree.predict(&[3.0, 0.0, 0.0]);
+        let result = tree.predict(&[3.0, 0.0, 0.0]).unwrap();
         assert_eq!(result.class, 0);
         assert_eq!(result.confidence, 0.8);
         assert!(result.path.len() == 2);
@@ -299,7 +306,7 @@ mod tests {
     fn predict_right_branch() {
         let tree = DecisionTree::from_json(&minimal_tree_json()).unwrap();
         // feature[0] = 7.0 > 5.0, so go right -> class "dog"
-        let result = tree.predict(&[7.0, 0.0, 0.0]);
+        let result = tree.predict(&[7.0, 0.0, 0.0]).unwrap();
         assert_eq!(result.class, 1);
         assert_eq!(result.confidence, 0.8);
         assert!(result.path[0].contains("right"));
@@ -311,9 +318,9 @@ mod tests {
         let tree = DecisionTree::from_json(&minimal_tree_json()).unwrap();
         let features = vec![3.0, 1.0, 2.0];
 
-        let r1 = tree.predict(&features);
-        let r2 = tree.predict(&features);
-        let r3 = tree.predict(&features);
+        let r1 = tree.predict(&features).unwrap();
+        let r2 = tree.predict(&features).unwrap();
+        let r3 = tree.predict(&features).unwrap();
 
         assert_eq!(r1.class, r2.class);
         assert_eq!(r2.class, r3.class);
@@ -327,7 +334,7 @@ mod tests {
     fn predict_threshold_boundary() {
         let tree = DecisionTree::from_json(&minimal_tree_json()).unwrap();
         // feature[0] = 5.0 <= 5.0, so go left
-        let result = tree.predict(&[5.0, 0.0, 0.0]);
+        let result = tree.predict(&[5.0, 0.0, 0.0]).unwrap();
         assert_eq!(result.class, 0); // "cat"
     }
 
@@ -354,10 +361,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "feature vector length")]
-    fn predict_wrong_feature_count() {
+    fn predict_wrong_feature_count_returns_error() {
         let tree = DecisionTree::from_json(&minimal_tree_json()).unwrap();
-        tree.predict(&[1.0]); // expects 3 features
+        let err = tree.predict(&[1.0]).unwrap_err();
+        assert!(err.to_string().contains("feature vector length"));
+    }
+
+    #[test]
+    fn predict_nan_feature_returns_error() {
+        let tree = DecisionTree::from_json(&minimal_tree_json()).unwrap();
+        let err = tree.predict(&[1.0, f64::NAN, 0.0]).unwrap_err();
+        assert!(err.to_string().contains("NaN at index 1"));
     }
 
     #[test]
@@ -390,7 +404,7 @@ mod tests {
         let tree = DecisionTree::from_json(&json).unwrap();
         assert!(tree.feature_names.is_empty());
         // predict still works, just uses fallback names
-        let result = tree.predict(&[1.0, 2.0]);
+        let result = tree.predict(&[1.0, 2.0]).unwrap();
         assert_eq!(result.class, 0);
     }
 
@@ -470,9 +484,9 @@ mod tests {
             0.0,   // concurrent_scope_conflicts
         ];
 
-        let r1 = tree.predict(&features);
-        let r2 = tree.predict(&features);
-        let r3 = tree.predict(&features);
+        let r1 = tree.predict(&features).unwrap();
+        let r2 = tree.predict(&features).unwrap();
+        let r3 = tree.predict(&features).unwrap();
 
         assert_eq!(r1.class, r2.class);
         assert_eq!(r2.class, r3.class);

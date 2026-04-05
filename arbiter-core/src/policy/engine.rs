@@ -2,6 +2,7 @@
 
 use crate::policy::decision_tree::DecisionTree;
 use crate::types::PredictionResult;
+use tracing::warn;
 
 /// Evaluate multiple agents against the decision tree and return
 /// results ranked by confidence (highest first).
@@ -11,15 +12,27 @@ use crate::types::PredictionResult;
 ///
 /// If `feature_vectors` is empty, returns an empty vector (the caller
 /// should treat this as a reject — no candidates available).
+///
+/// Failed predictions (e.g. NaN features) are silently filtered out
+/// with a warning log.
 pub fn evaluate_for_agents(
     tree: &DecisionTree,
     feature_vectors: &[(String, [f64; 22])],
 ) -> Vec<(String, PredictionResult)> {
     let mut results: Vec<(String, PredictionResult)> = feature_vectors
         .iter()
-        .map(|(agent_id, features)| {
-            let prediction = tree.predict(features);
-            (agent_id.clone(), prediction)
+        .filter_map(|(agent_id, features)| {
+            match tree.predict(features) {
+                Ok(prediction) => Some((agent_id.clone(), prediction)),
+                Err(e) => {
+                    warn!(
+                        agent = %agent_id,
+                        error = %e,
+                        "prediction failed, skipping agent"
+                    );
+                    None
+                }
+            }
         })
         .collect();
 
