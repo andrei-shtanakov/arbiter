@@ -21,17 +21,15 @@ pub fn evaluate_for_agents(
 ) -> Vec<(String, PredictionResult)> {
     let mut results: Vec<(String, PredictionResult)> = feature_vectors
         .iter()
-        .filter_map(|(agent_id, features)| {
-            match tree.predict(features) {
-                Ok(prediction) => Some((agent_id.clone(), prediction)),
-                Err(e) => {
-                    warn!(
-                        agent = %agent_id,
-                        error = %e,
-                        "prediction failed, skipping agent"
-                    );
-                    None
-                }
+        .filter_map(|(agent_id, features)| match tree.predict(features) {
+            Ok(prediction) => Some((agent_id.clone(), prediction)),
+            Err(e) => {
+                warn!(
+                    agent = %agent_id,
+                    error = %e,
+                    "prediction failed, skipping agent"
+                );
+                None
             }
         })
         .collect();

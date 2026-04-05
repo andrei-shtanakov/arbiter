@@ -158,9 +158,7 @@ impl DecisionTree {
                     .value
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| {
-                        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
-                    })
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                     .context("empty value vector in leaf node")?;
 
                 let confidence = if total > 0.0 { max_val / total } else { 0.0 };

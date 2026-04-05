@@ -285,10 +285,8 @@ pub fn execute(
             Some(info) => info,
             None => continue,
         };
-        let agent_ctx = to_agent_context(
-            agent_info,
-            invariant_config.agent_health.max_failures_24h,
-        );
+        let agent_ctx =
+            to_agent_context(agent_info, invariant_config.agent_health.max_failures_24h);
         let invariant_results = check_all_invariants(task, &agent_ctx, &system_ctx, &thresholds);
 
         if !has_critical_failure(&invariant_results) {
