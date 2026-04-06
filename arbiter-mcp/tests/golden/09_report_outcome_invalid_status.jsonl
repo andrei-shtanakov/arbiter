@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"report_outcome","arguments":{"task_id":"golden-t1","agent_id":"claude_code","status":"exploded"}}}
+{"jsonrpc":"2.0","id":9,"error":{"code":-32000}}

@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"golden-t2"}}}
+{"jsonrpc":"2.0","id":7,"error":{"code":-32602}}

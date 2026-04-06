@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":3,"method":"tools/list"}
+{"jsonrpc":"2.0","id":3,"result":{"tools":"__ARRAY_LENGTH_5__"}}

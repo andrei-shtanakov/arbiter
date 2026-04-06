@@ -239,10 +239,7 @@ impl McpServer {
             }
 
             if line.len() > MAX_LINE_LENGTH {
-                warn!(
-                    len = line.len(),
-                    "line exceeds maximum length, rejecting"
-                );
+                warn!(len = line.len(), "line exceeds maximum length, rejecting");
                 let resp = JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: None,
