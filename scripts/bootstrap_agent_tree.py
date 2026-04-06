@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -435,9 +436,49 @@ def export_tree_json(
     }
 
 
+def extract_from_db(
+    db_path: str,
+) -> tuple[list[list[float]], list[int]]:
+    """Extract training data from arbiter.db outcomes.
+
+    Joins decisions with successful outcomes, parses feature vectors
+    and maps agent names to class indices.
+
+    Returns (X, y) lists of feature vectors and agent class indices.
+    """
+    X: list[list[float]] = []
+    y: list[int] = []
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.execute(
+            "SELECT d.feature_vector, d.chosen_agent "
+            "FROM decisions d "
+            "JOIN outcomes ON outcomes.decision_id = d.id "
+            "WHERE outcomes.status = 'success'"
+        )
+        for row in cursor:
+            try:
+                features = json.loads(row[0])
+                agent = row[1]
+                if agent not in AGENT_IDX:
+                    continue
+                if len(features) != 22:
+                    continue
+                X.append([float(f) for f in features])
+                y.append(AGENT_IDX[agent])
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+    finally:
+        conn.close()
+
+    return X, y
+
+
 def train_and_export(
     output_path: str = "models/agent_policy_tree.json",
     seed: int = 42,
+    from_db: str | None = None,
 ) -> dict:
     """Train bootstrap tree from expert rules and export to JSON.
 
@@ -448,6 +489,19 @@ def train_and_export(
     # Generate expert examples
     X_raw, y_raw = generate_expert_examples(rng)
     print(f"Generated {len(X_raw)} raw training examples")
+
+    if from_db:
+        print(f"\nExtracting training data from {from_db}")
+        db_X, db_y = extract_from_db(from_db)
+        print(f"  Extracted {len(db_X)} examples from database")
+        if db_X:
+            X_raw.extend(db_X)
+            y_raw.extend(db_y)
+            print(
+                f"  Total: {len(X_raw)} examples"
+                f" ({len(db_X)} DB"
+                f" + {len(X_raw) - len(db_X)} expert)"
+            )
 
     # Add noise
     X, y = inject_noise(X_raw, y_raw, rng, noise_scale=0.05)
@@ -498,6 +552,23 @@ def train_and_export(
             print(f"{cm[i][j]:>12}", end="")
         print()
 
+    # Feature importance
+    importances = clf.feature_importances_
+    sorted_idx = np.argsort(importances)[::-1]
+    print("\nFeature importance (top 10):")
+    for rank, idx in enumerate(sorted_idx[:10], 1):
+        name = FEATURE_NAMES[idx] if idx < len(FEATURE_NAMES) else f"feature[{idx}]"
+        print(f"  {rank:2d}. {name:30s} {importances[idx]:.4f}")
+    zero_features = [
+        FEATURE_NAMES[i] for i in range(len(FEATURE_NAMES)) if importances[i] == 0.0
+    ]
+    if zero_features:
+        print(
+            f"\n  Zero-importance features"
+            f" ({len(zero_features)}):"
+            f" {', '.join(zero_features)}"
+        )
+
     # Validate constraints
     assert accuracy > 0.95, f"Accuracy {accuracy:.4f} below 95% threshold"
     assert clf.get_depth() <= 7, f"Tree depth {clf.get_depth()} exceeds max 7"
@@ -521,6 +592,11 @@ def train_and_export(
         "node_count": clf.tree_.node_count,
         "n_examples": len(X),
         "output_path": output_path,
+        "feature_importance": {
+            FEATURE_NAMES[i]: float(importances[i])
+            for i in sorted_idx
+            if importances[i] > 0
+        },
     }
 
 
@@ -535,6 +611,11 @@ def main() -> None:
         help="Output path for the tree JSON",
     )
     parser.add_argument(
+        "--from-db",
+        default=None,
+        help="Path to arbiter.db — extract training data from outcomes",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -542,7 +623,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    stats = train_and_export(args.output, args.seed)
+    stats = train_and_export(args.output, args.seed, args.from_db)
 
     if stats["accuracy"] < 0.95:
         print("\nWARNING: accuracy below 95%%!", file=sys.stderr)
