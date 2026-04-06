@@ -257,6 +257,29 @@ fn main() {
         }
     }
 
+    // Start file watcher for hot-reloading config and decision tree.
+    let _watcher = match arbiter_mcp::watcher::start_watcher(
+        arbiter_mcp::watcher::WatchPaths {
+            config_dir: args.config_dir.clone(),
+            tree_path: args.tree.clone(),
+        },
+        arbiter_mcp::watcher::ReloadableState {
+            config: Arc::clone(&config),
+            tree: Arc::clone(&tree),
+            registry: Arc::clone(&registry),
+            db: Arc::clone(&database),
+        },
+    ) {
+        Ok(w) => Some(w),
+        Err(e) => {
+            eprintln!(
+                "WARNING: file watcher failed to start: {e:#}. \
+                 Hot reload disabled."
+            );
+            None
+        }
+    };
+
     // Create and run MCP server
     let mut server = server::McpServer::new(
         Arc::clone(&config),

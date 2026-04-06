@@ -14,3 +14,4 @@ pub mod features;
 pub mod metrics;
 pub mod server;
 pub mod tools;
+pub mod watcher;

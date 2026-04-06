@@ -117,6 +117,15 @@ pub struct Database {
     conn: Connection,
 }
 
+// SAFETY: Database wraps a single rusqlite::Connection which is Send but
+// not Sync (due to internal RefCell).  We guarantee single-writer access
+// at the application level: the synchronous MCP server processes one
+// request at a time on the main thread, and the file-watcher reload
+// thread only touches the Database through AgentRegistry::new() which
+// runs sequentially on that thread (gated by a channel receive).
+// No concurrent access to the underlying Connection occurs.
+unsafe impl Sync for Database {}
+
 impl Database {
     /// Open (or create) a SQLite database at the given path with WAL mode.
     pub fn open(path: &Path) -> Result<Self> {
@@ -650,6 +659,46 @@ impl Database {
             );
         }
         Ok(total)
+    }
+
+    // -----------------------------------------------------------------------
+    // Cost tracking
+    // -----------------------------------------------------------------------
+
+    /// Get total cost across all agents and task types.
+    pub fn get_total_cost(&self) -> Result<f64> {
+        let cost: f64 = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(SUM(total_cost_usd), 0.0) FROM agent_stats",
+                [],
+                |row| row.get(0),
+            )
+            .context("Failed to get total cost")?;
+        Ok(cost)
+    }
+
+    /// Get total cost per agent.
+    /// Returns vec of (agent_id, total_cost_usd, total_tasks).
+    pub fn get_cost_by_agent(&self) -> Result<Vec<(String, f64, i64)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT agent_id,
+                    COALESCE(SUM(total_cost_usd), 0.0),
+                    COALESCE(SUM(total_tasks), 0)
+             FROM agent_stats
+             GROUP BY agent_id",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, f64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("Failed to query cost by agent")?;
+        Ok(rows)
     }
 
     /// Get a reference to the underlying connection (for testing).
@@ -1422,5 +1471,100 @@ mod tests {
         assert!((stats.avg_duration_min - 15.0).abs() < f64::EPSILON);
         assert!((stats.avg_cost_usd - 0.15).abs() < f64::EPSILON);
         assert_eq!(stats.total_tokens, 3000);
+    }
+
+    // -- Cost tracking --
+
+    #[test]
+    fn get_total_cost_empty() {
+        let db = setup_db();
+        let cost = db.get_total_cost().unwrap();
+        assert!((cost - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn get_total_cost_with_data() {
+        let db = setup_db();
+        insert_test_agent(&db, "claude_code");
+        insert_test_agent(&db, "codex_cli");
+
+        let decision = sample_decision();
+        let decision_id = db.insert_decision(&decision).unwrap();
+
+        let outcome1 = OutcomeRecord {
+            task_id: "t-cost-1".to_string(),
+            decision_id: Some(decision_id),
+            agent_id: "claude_code".to_string(),
+            status: "success".to_string(),
+            duration_min: Some(10.0),
+            tokens_used: Some(1000),
+            cost_usd: Some(0.50),
+            exit_code: Some(0),
+            files_changed: Some(1),
+            tests_passed: Some(true),
+            validation_passed: Some(true),
+            error_summary: None,
+            retry_count: 0,
+        };
+        db.insert_outcome(&outcome1).unwrap();
+        db.update_agent_stats("claude_code", "bugfix", "python", &outcome1)
+            .unwrap();
+
+        let outcome2 = OutcomeRecord {
+            task_id: "t-cost-2".to_string(),
+            decision_id: Some(decision_id),
+            agent_id: "codex_cli".to_string(),
+            status: "success".to_string(),
+            duration_min: Some(5.0),
+            tokens_used: Some(500),
+            cost_usd: Some(0.30),
+            exit_code: Some(0),
+            files_changed: Some(2),
+            tests_passed: Some(true),
+            validation_passed: Some(true),
+            error_summary: None,
+            retry_count: 0,
+        };
+        db.insert_outcome(&outcome2).unwrap();
+        db.update_agent_stats("codex_cli", "feature", "rust", &outcome2)
+            .unwrap();
+
+        let total = db.get_total_cost().unwrap();
+        assert!((total - 0.80).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn get_cost_by_agent_returns_per_agent() {
+        let db = setup_db();
+        insert_test_agent(&db, "claude_code");
+
+        let decision = sample_decision();
+        let decision_id = db.insert_decision(&decision).unwrap();
+
+        let outcome = OutcomeRecord {
+            task_id: "t-agent-cost".to_string(),
+            decision_id: Some(decision_id),
+            agent_id: "claude_code".to_string(),
+            status: "success".to_string(),
+            duration_min: Some(8.0),
+            tokens_used: Some(2000),
+            cost_usd: Some(0.42),
+            exit_code: Some(0),
+            files_changed: Some(1),
+            tests_passed: Some(true),
+            validation_passed: Some(true),
+            error_summary: None,
+            retry_count: 0,
+        };
+        db.insert_outcome(&outcome).unwrap();
+        db.update_agent_stats("claude_code", "bugfix", "python", &outcome)
+            .unwrap();
+
+        let breakdown = db.get_cost_by_agent().unwrap();
+        assert_eq!(breakdown.len(), 1);
+        let (agent_id, cost, tasks) = &breakdown[0];
+        assert_eq!(agent_id, "claude_code");
+        assert!((cost - 0.42).abs() < f64::EPSILON);
+        assert_eq!(*tasks, 1);
     }
 }
