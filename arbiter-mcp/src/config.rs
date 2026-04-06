@@ -102,6 +102,64 @@ pub struct ArbiterConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Validators
+// ---------------------------------------------------------------------------
+
+/// Validate semantic constraints on agent configurations.
+///
+/// Checks that numeric fields are positive and capability lists are non-empty.
+pub fn validate_agents(agents: &HashMap<String, AgentConfig>) -> Result<()> {
+    for (id, agent) in agents {
+        if agent.max_concurrent == 0 {
+            bail!(
+                "Agent '{id}': max_concurrent must be > 0"
+            );
+        }
+        if agent.cost_per_hour <= 0.0 {
+            bail!(
+                "Agent '{id}': cost_per_hour must be > 0"
+            );
+        }
+        if agent.avg_duration_min <= 0.0 {
+            bail!(
+                "Agent '{id}': avg_duration_min must be > 0"
+            );
+        }
+        if agent.supports_languages.is_empty() {
+            bail!(
+                "Agent '{id}': supports_languages must not be empty"
+            );
+        }
+        if agent.supports_types.is_empty() {
+            bail!(
+                "Agent '{id}': supports_types must not be empty"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Validate semantic constraints on invariant configuration.
+///
+/// Checks that thresholds are within valid ranges.
+/// Note: `max_retries = 0` is valid (strict no-retry mode).
+pub fn validate_invariants(config: &InvariantConfig) -> Result<()> {
+    if config.concurrency.max_total_concurrent == 0 {
+        bail!("max_total_concurrent must be > 0");
+    }
+    if config.sla.buffer_multiplier <= 0.0 {
+        bail!("buffer_multiplier must be > 0");
+    }
+    if config.budget.threshold_usd < 0.0 {
+        bail!("threshold_usd must be >= 0");
+    }
+    if config.rate_limit.calls_per_minute == 0 {
+        bail!("calls_per_minute must be > 0");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Loaders
 // ---------------------------------------------------------------------------
 
@@ -144,7 +202,9 @@ pub fn load_invariants(config_dir: &Path) -> Result<InvariantConfig> {
 /// Reads `agents.toml` and `invariants.toml`, validates required fields.
 pub fn load_config(config_dir: &Path) -> Result<ArbiterConfig> {
     let agents = load_agents(config_dir)?;
+    validate_agents(&agents)?;
     let invariants = load_invariants(config_dir)?;
+    validate_invariants(&invariants)?;
     Ok(ArbiterConfig { agents, invariants })
 }
 
@@ -356,6 +416,129 @@ max_total_concurrent = 5
             msg.contains("sla") || msg.contains("missing field"),
             "Expected 'sla' in error: {msg}"
         );
+    }
+
+    // ---------------------------------------------------------------
+    // Semantic validation tests
+    // ---------------------------------------------------------------
+
+    /// Helper: create a valid AgentConfig for mutation in tests.
+    fn valid_agent() -> AgentConfig {
+        AgentConfig {
+            display_name: "Test".into(),
+            supports_languages: vec!["python".into()],
+            supports_types: vec!["bugfix".into()],
+            max_concurrent: 2,
+            cost_per_hour: 0.30,
+            avg_duration_min: 10.0,
+        }
+    }
+
+    /// Helper: create a valid InvariantConfig for mutation in tests.
+    fn valid_invariant_config() -> InvariantConfig {
+        InvariantConfig {
+            budget: BudgetConfig {
+                threshold_usd: 10.0,
+            },
+            retries: RetriesConfig { max_retries: 3 },
+            rate_limit: RateLimitConfig {
+                calls_per_minute: 60,
+            },
+            agent_health: AgentHealthConfig {
+                max_failures_24h: 5,
+            },
+            concurrency: ConcurrencyConfig {
+                max_total_concurrent: 5,
+            },
+            sla: SlaConfig {
+                buffer_multiplier: 1.5,
+            },
+        }
+    }
+
+    #[test]
+    fn validate_agents_zero_max_concurrent() {
+        let mut agent = valid_agent();
+        agent.max_concurrent = 0;
+        let agents = HashMap::from([("a".into(), agent)]);
+        let err = validate_agents(&agents).unwrap_err().to_string();
+        assert!(err.contains("max_concurrent"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_agents_negative_cost() {
+        let mut agent = valid_agent();
+        agent.cost_per_hour = -1.0;
+        let agents = HashMap::from([("a".into(), agent)]);
+        let err = validate_agents(&agents).unwrap_err().to_string();
+        assert!(err.contains("cost_per_hour"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_agents_zero_duration() {
+        let mut agent = valid_agent();
+        agent.avg_duration_min = 0.0;
+        let agents = HashMap::from([("a".into(), agent)]);
+        let err = validate_agents(&agents).unwrap_err().to_string();
+        assert!(err.contains("avg_duration_min"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_agents_empty_languages() {
+        let mut agent = valid_agent();
+        agent.supports_languages = vec![];
+        let agents = HashMap::from([("a".into(), agent)]);
+        let err = validate_agents(&agents).unwrap_err().to_string();
+        assert!(err.contains("supports_languages"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_agents_empty_types() {
+        let mut agent = valid_agent();
+        agent.supports_types = vec![];
+        let agents = HashMap::from([("a".into(), agent)]);
+        let err = validate_agents(&agents).unwrap_err().to_string();
+        assert!(err.contains("supports_types"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_invariants_zero_max_retries() {
+        let mut cfg = valid_invariant_config();
+        cfg.retries.max_retries = 0;
+        // max_retries=0 is valid (strict no-retry mode)
+        validate_invariants(&cfg).unwrap();
+    }
+
+    #[test]
+    fn validate_invariants_zero_concurrency() {
+        let mut cfg = valid_invariant_config();
+        cfg.concurrency.max_total_concurrent = 0;
+        let err = validate_invariants(&cfg).unwrap_err().to_string();
+        assert!(err.contains("max_total_concurrent"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_invariants_zero_buffer() {
+        let mut cfg = valid_invariant_config();
+        cfg.sla.buffer_multiplier = 0.0;
+        let err = validate_invariants(&cfg).unwrap_err().to_string();
+        assert!(err.contains("buffer_multiplier"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_invariants_negative_budget() {
+        let mut cfg = valid_invariant_config();
+        cfg.budget.threshold_usd = -5.0;
+        let err = validate_invariants(&cfg).unwrap_err().to_string();
+        assert!(err.contains("threshold_usd"), "got: {err}");
+    }
+
+    #[test]
+    fn validate_valid_config_passes() {
+        let dir = tempfile::tempdir().unwrap();
+        write_valid_config(dir.path());
+        // load_config now runs both validators
+        load_config(dir.path()).unwrap();
     }
 
     #[test]
