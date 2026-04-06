@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from orchestrator.types import AgentStatusInfo, OutcomeResult, RouteDecision
+
 logger = logging.getLogger(__name__)
 
 
@@ -196,6 +198,49 @@ class ArbiterClient:
         if agent_id is not None:
             arguments["agent_id"] = agent_id
         return await self._call_tool("get_agent_status", arguments)
+
+    # ------------------------------------------------------------------
+    # Typed convenience methods
+    # ------------------------------------------------------------------
+
+    async def route_task_typed(
+        self,
+        task_id: str,
+        task: dict[str, Any],
+        constraints: dict[str, Any] | None = None,
+    ) -> RouteDecision:
+        """Route a task and return a typed RouteDecision.
+
+        Same as route_task but parses the response into a dataclass.
+        """
+        raw = await self.route_task(task_id, task, constraints)
+        return RouteDecision.from_dict(raw)
+
+    async def report_outcome_typed(
+        self,
+        task_id: str,
+        agent_id: str,
+        status: str,
+        **kwargs: Any,
+    ) -> OutcomeResult:
+        """Report an outcome and return a typed OutcomeResult.
+
+        Same as report_outcome but parses the response into a dataclass.
+        """
+        raw = await self.report_outcome(task_id, agent_id, status, **kwargs)
+        return OutcomeResult.from_dict(raw)
+
+    async def get_agent_status_typed(
+        self,
+        agent_id: str | None = None,
+    ) -> list[AgentStatusInfo]:
+        """Query agent status and return typed AgentStatusInfo objects.
+
+        Same as get_agent_status but parses the response into dataclasses.
+        """
+        raw = await self.get_agent_status(agent_id)
+        agents = raw.get("agents", [])
+        return [AgentStatusInfo.from_dict(a) for a in agents]
 
     # ------------------------------------------------------------------
     # Internal methods
