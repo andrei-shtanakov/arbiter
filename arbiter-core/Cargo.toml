@@ -9,5 +9,4 @@ description = "Shared library for Arbiter: types, DT inference, invariants, metr
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
-anyhow = { workspace = true }
 thiserror = { workspace = true }

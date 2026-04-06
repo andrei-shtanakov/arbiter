@@ -4,8 +4,8 @@
 //! deterministic inference, producing a class prediction with confidence
 //! and an auditable decision path.
 
+use crate::error::{ArbiterError, Result};
 use crate::types::PredictionResult;
-use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 /// A single node in the decision tree.
@@ -66,24 +66,31 @@ impl DecisionTree {
     /// }
     /// ```
     pub fn from_json(json: &str) -> Result<Self> {
-        let tree: TreeJson =
-            serde_json::from_str(json).context("failed to parse decision tree JSON")?;
+        let tree: TreeJson = serde_json::from_str(json).map_err(|e| {
+            ArbiterError::InvalidTree(format!("failed to parse decision tree JSON: {e}"))
+        })?;
 
         if tree.nodes.is_empty() {
-            bail!("decision tree has no nodes");
+            return Err(ArbiterError::InvalidTree(
+                "decision tree has no nodes".to_string(),
+            ));
         }
         if tree.n_classes == 0 {
-            bail!("decision tree has zero classes");
+            return Err(ArbiterError::InvalidTree(
+                "decision tree has zero classes".to_string(),
+            ));
         }
         if tree.n_features == 0 {
-            bail!("decision tree has zero features");
+            return Err(ArbiterError::InvalidTree(
+                "decision tree has zero features".to_string(),
+            ));
         }
         if tree.class_names.len() != tree.n_classes {
-            bail!(
+            return Err(ArbiterError::InvalidTree(format!(
                 "class_names length {} does not match n_classes {}",
                 tree.class_names.len(),
                 tree.n_classes
-            );
+            )));
         }
 
         // Validate node structure
@@ -92,25 +99,30 @@ impl DecisionTree {
             let is_leaf = node.feature < 0;
             if !is_leaf {
                 if node.left < 0 || node.left >= n {
-                    bail!("node {i}: invalid left child index {}", node.left);
+                    return Err(ArbiterError::InvalidTree(format!(
+                        "node {i}: invalid left child index {}",
+                        node.left
+                    )));
                 }
                 if node.right < 0 || node.right >= n {
-                    bail!("node {i}: invalid right child index {}", node.right);
+                    return Err(ArbiterError::InvalidTree(format!(
+                        "node {i}: invalid right child index {}",
+                        node.right
+                    )));
                 }
                 if node.feature as usize >= tree.n_features {
-                    bail!(
+                    return Err(ArbiterError::InvalidTree(format!(
                         "node {i}: feature index {} >= n_features {}",
-                        node.feature,
-                        tree.n_features
-                    );
+                        node.feature, tree.n_features
+                    )));
                 }
             }
             if node.value.len() != tree.n_classes {
-                bail!(
+                return Err(ArbiterError::InvalidTree(format!(
                     "node {i}: value length {} does not match n_classes {}",
                     node.value.len(),
                     tree.n_classes
-                );
+                )));
             }
         }
 
@@ -152,15 +164,17 @@ impl DecisionTree {
         }
 
         if features.len() != self.n_features {
-            bail!(
+            return Err(ArbiterError::InvalidFeatures(format!(
                 "feature vector length {} does not match tree n_features {}",
                 features.len(),
                 self.n_features
-            );
+            )));
         }
 
         if let Some(idx) = features.iter().position(|f| !f.is_finite()) {
-            bail!("feature vector contains non-finite value at index {idx}");
+            return Err(ArbiterError::InvalidFeatures(format!(
+                "feature vector contains non-finite value at index {idx}"
+            )));
         }
 
         let mut node_idx: usize = 0;
@@ -180,7 +194,9 @@ impl DecisionTree {
                     .iter()
                     .enumerate()
                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                    .context("empty value vector in leaf node")?;
+                    .ok_or_else(|| {
+                        ArbiterError::InferenceError("empty value vector in leaf node".to_string())
+                    })?;
 
                 let confidence = if total > 0.0 { max_val / total } else { 0.0 };
 
