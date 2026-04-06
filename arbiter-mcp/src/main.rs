@@ -232,6 +232,13 @@ fn main() {
         Err(e) => eprintln!("WARNING: retention purge failed: {e:#}"),
     }
 
+    // Crash recovery: reset any orphaned running_tasks counters.
+    match database.reset_all_running_tasks() {
+        Ok(n) if n > 0 => info!(agents_reset = n, "startup: reset orphaned running_tasks"),
+        Ok(_) => {}
+        Err(e) => eprintln!("WARNING: running_tasks reset failed: {e:#}"),
+    }
+
     // Create agent registry
     let registry = match agents::AgentRegistry::new(Arc::clone(&database), &config.agents) {
         Ok(r) => r,

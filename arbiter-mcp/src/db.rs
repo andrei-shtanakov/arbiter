@@ -701,6 +701,31 @@ impl Database {
         Ok(rows)
     }
 
+    // -----------------------------------------------------------------------
+    // Crash recovery
+    // -----------------------------------------------------------------------
+
+    /// Reset running_tasks to 0 for all agents.
+    ///
+    /// Called on startup to recover from crashes where counters drifted.
+    pub fn reset_all_running_tasks(&self) -> Result<usize> {
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE agents SET running_tasks = 0, updated_at = datetime('now')
+                 WHERE running_tasks > 0",
+                [],
+            )
+            .context("Failed to reset running_tasks")?;
+        if rows > 0 {
+            tracing::info!(
+                agents_reset = rows,
+                "reset orphaned running_tasks on startup"
+            );
+        }
+        Ok(rows)
+    }
+
     /// Get a reference to the underlying connection (for testing).
     #[cfg(test)]
     #[allow(dead_code)]
@@ -1566,5 +1591,27 @@ mod tests {
         assert_eq!(agent_id, "claude_code");
         assert!((cost - 0.42).abs() < f64::EPSILON);
         assert_eq!(*tasks, 1);
+    }
+
+    #[test]
+    fn reset_all_running_tasks() {
+        let db = setup_db();
+        insert_test_agent(&db, "a1");
+        insert_test_agent(&db, "a2");
+        db.increment_running_tasks("a1").unwrap();
+        db.increment_running_tasks("a1").unwrap();
+        db.increment_running_tasks("a2").unwrap();
+        let reset = db.reset_all_running_tasks().unwrap();
+        assert_eq!(reset, 2);
+        assert_eq!(db.get_running_tasks("a1").unwrap(), 0);
+        assert_eq!(db.get_running_tasks("a2").unwrap(), 0);
+    }
+
+    #[test]
+    fn reset_all_running_tasks_noop_when_zero() {
+        let db = setup_db();
+        insert_test_agent(&db, "a1");
+        let reset = db.reset_all_running_tasks().unwrap();
+        assert_eq!(reset, 0);
     }
 }
