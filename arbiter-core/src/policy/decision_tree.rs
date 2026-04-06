@@ -314,6 +314,11 @@ impl DecisionTree {
         &self.class_names
     }
 
+    /// Feature name labels.
+    pub fn feature_names(&self) -> &[String] {
+        &self.feature_names
+    }
+
     fn compute_depth(&self, node_idx: usize) -> usize {
         let node = &self.nodes[node_idx];
         if node.feature < 0 {
@@ -322,6 +327,24 @@ impl DecisionTree {
         let left_depth = self.compute_depth(node.left as usize);
         let right_depth = self.compute_depth(node.right as usize);
         1 + left_depth.max(right_depth)
+    }
+}
+
+impl crate::traits::InferenceBackend for DecisionTree {
+    fn predict(&self, features: &[f64]) -> crate::error::Result<PredictionResult> {
+        self.predict(features)
+    }
+
+    fn n_features(&self) -> usize {
+        self.n_features
+    }
+
+    fn n_classes(&self) -> usize {
+        self.n_classes
+    }
+
+    fn class_names(&self) -> &[String] {
+        &self.class_names
     }
 }
 

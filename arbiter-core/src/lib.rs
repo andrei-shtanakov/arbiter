@@ -6,6 +6,7 @@
 pub mod error;
 pub mod invariant;
 pub mod policy;
+pub mod traits;
 pub mod types;
 
 pub use error::{ArbiterError, Result};
