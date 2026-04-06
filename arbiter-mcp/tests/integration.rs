@@ -971,7 +971,14 @@ fn mcp_server_handshake_and_tools_list() {
     let config = test_config();
     let metrics = arbiter_mcp::metrics::Metrics::new();
     let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+    let mut server = McpServer::new(
+        config,
+        &db,
+        Some(&tree),
+        registry,
+        &metrics,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    );
 
     // Step 1: Initialize
     let resp = dispatch(
@@ -1018,7 +1025,14 @@ fn mcp_protocol_error_handling() {
     let config = test_config();
     let metrics = arbiter_mcp::metrics::Metrics::new();
     let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+    let mut server = McpServer::new(
+        config,
+        &db,
+        Some(&tree),
+        registry,
+        &metrics,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    );
 
     // Unknown method → -32601
     let resp = dispatch(
@@ -1050,7 +1064,14 @@ fn mcp_route_task_e2e() {
     let config = test_config();
     let metrics = arbiter_mcp::metrics::Metrics::new();
     let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+    let mut server = McpServer::new(
+        config,
+        &db,
+        Some(&tree),
+        registry,
+        &metrics,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    );
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -1105,7 +1126,14 @@ fn mcp_report_and_status_e2e() {
     let config = test_config();
     let metrics = arbiter_mcp::metrics::Metrics::new();
     let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+    let mut server = McpServer::new(
+        config,
+        &db,
+        Some(&tree),
+        registry,
+        &metrics,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    );
 
     // Route a task first
     let route_req = serde_json::json!({

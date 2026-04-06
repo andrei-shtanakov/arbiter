@@ -4,6 +4,8 @@
 //! and writes JSON responses to stdout. All logging goes to stderr.
 
 use std::io::{self, BufRead, Write};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use std::sync::Arc;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -172,17 +174,20 @@ pub struct McpServer<'a> {
     tree: Option<&'a DecisionTree>,
     registry: AgentRegistry<'a>,
     metrics: &'a Metrics,
+    shutdown: Arc<AtomicBool>,
 }
 
 impl<'a> McpServer<'a> {
     /// Create a new MCP server with the given configuration, database,
-    /// decision tree, agent registry, and metrics collector.
+    /// decision tree, agent registry, metrics collector, and shutdown
+    /// flag.
     pub fn new(
         config: ArbiterConfig,
         db: &'a Database,
         tree: Option<&'a DecisionTree>,
         registry: AgentRegistry<'a>,
         metrics: &'a Metrics,
+        shutdown: Arc<AtomicBool>,
     ) -> Self {
         Self {
             config,
@@ -191,6 +196,7 @@ impl<'a> McpServer<'a> {
             tree,
             registry,
             metrics,
+            shutdown,
         }
     }
 
@@ -205,6 +211,10 @@ impl<'a> McpServer<'a> {
         info!("MCP server ready, reading from stdin");
 
         for line in stdin.lock().lines() {
+            if self.shutdown.load(AtomicOrdering::Relaxed) {
+                info!("shutdown signal received, stopping");
+                break;
+            }
             let line = match line {
                 Ok(l) => l,
                 Err(e) => {
@@ -271,6 +281,15 @@ impl<'a> McpServer<'a> {
             }
             "tools/list" => Some(self.handle_tools_list(req)),
             "tools/call" => Some(self.handle_tools_call(req)),
+            "ping" => {
+                debug!("ping");
+                Some(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: req.id.clone(),
+                    result: Some(serde_json::json!({})),
+                    error: None,
+                })
+            }
             _ => {
                 warn!("unknown method: {}", req.method);
                 Some(JsonRpcResponse {
@@ -794,7 +813,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
@@ -813,7 +833,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
@@ -827,7 +848,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":2,"method":"initialized"}"#,
@@ -841,7 +863,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#,
@@ -861,11 +884,26 @@ mod tests {
     }
 
     #[test]
+    fn handle_ping_returns_empty_object() {
+        let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
+        let registry = AgentRegistry::new(&db, &config.agents).unwrap();
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
+        let resp = dispatch(&mut server, r#"{"jsonrpc":"2.0","id":99,"method":"ping"}"#).unwrap();
+
+        assert!(resp.error.is_none());
+        assert_eq!(resp.result.unwrap(), serde_json::json!({}));
+        assert_eq!(resp.id, Some(serde_json::json!(99)));
+    }
+
+    #[test]
     fn handle_unknown_method_returns_32601() {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":4,"method":"nonexistent"}"#,
@@ -882,7 +920,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":5,"method":"tools/call"}"#,
@@ -899,7 +938,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"bad_tool"}}"#,
@@ -916,7 +956,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"route_task","arguments":{"task":{}}}}"#,
@@ -933,7 +974,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"t1"}}}"#,
@@ -950,7 +992,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"t1","task":{"type":"bugfix","language":"python","complexity":"simple","priority":"normal"}}}}"#,
@@ -974,7 +1017,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"report_outcome","arguments":{"task_id":"t1"}}}"#,
@@ -991,7 +1035,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"report_outcome","arguments":{"task_id":"t1","agent_id":"claude_code","status":"success"}}}"#,
@@ -1014,7 +1059,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"get_agent_status","arguments":{}}}"#,
@@ -1030,7 +1076,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"route_task"}}"#,
@@ -1047,7 +1094,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"unknown-type","task":{"type":"magic_spell","language":"python","complexity":"simple","priority":"normal"}}}}"#,
@@ -1076,7 +1124,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"unknown-lang","task":{"type":"bugfix","language":"cobol","complexity":"simple","priority":"normal"}}}}"#,
@@ -1105,7 +1154,8 @@ mod tests {
         let (db, _tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, None, registry, &metrics); // No tree
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, None, registry, &metrics, shutdown); // No tree
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"no-tree","task":{"type":"bugfix","language":"python","complexity":"simple","priority":"normal"}}}}"#,
@@ -1140,7 +1190,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
 
         // Numeric id
         let resp = dispatch(
@@ -1164,7 +1215,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
 
         // Send report_outcome with invalid status (should fail with business logic error)
         let resp = dispatch(
@@ -1184,7 +1236,8 @@ mod tests {
         let (db, tree, config) = setup_server();
         let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics, shutdown);
 
         // Send get_agent_status with unknown agent_id (should fail with business logic error)
         let resp = dispatch(

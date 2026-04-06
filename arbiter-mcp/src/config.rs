@@ -111,29 +111,19 @@ pub struct ArbiterConfig {
 pub fn validate_agents(agents: &HashMap<String, AgentConfig>) -> Result<()> {
     for (id, agent) in agents {
         if agent.max_concurrent == 0 {
-            bail!(
-                "Agent '{id}': max_concurrent must be > 0"
-            );
+            bail!("Agent '{id}': max_concurrent must be > 0");
         }
         if agent.cost_per_hour <= 0.0 {
-            bail!(
-                "Agent '{id}': cost_per_hour must be > 0"
-            );
+            bail!("Agent '{id}': cost_per_hour must be > 0");
         }
         if agent.avg_duration_min <= 0.0 {
-            bail!(
-                "Agent '{id}': avg_duration_min must be > 0"
-            );
+            bail!("Agent '{id}': avg_duration_min must be > 0");
         }
         if agent.supports_languages.is_empty() {
-            bail!(
-                "Agent '{id}': supports_languages must not be empty"
-            );
+            bail!("Agent '{id}': supports_languages must not be empty");
         }
         if agent.supports_types.is_empty() {
-            bail!(
-                "Agent '{id}': supports_types must not be empty"
-            );
+            bail!("Agent '{id}': supports_types must not be empty");
         }
     }
     Ok(())

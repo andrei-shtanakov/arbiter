@@ -617,6 +617,41 @@ impl Database {
         Ok(ids)
     }
 
+    // -----------------------------------------------------------------------
+    // Data retention
+    // -----------------------------------------------------------------------
+
+    /// Delete decisions and outcomes older than `days` days.
+    ///
+    /// Returns the total number of rows deleted across both tables.
+    pub fn purge_older_than(&self, days: u32) -> Result<usize> {
+        let threshold = format!("-{days} days");
+        let outcomes_deleted: usize = self
+            .conn
+            .execute(
+                "DELETE FROM outcomes WHERE timestamp < datetime('now', ?1)",
+                params![threshold],
+            )
+            .context("Failed to purge outcomes")?;
+        let decisions_deleted: usize = self
+            .conn
+            .execute(
+                "DELETE FROM decisions WHERE timestamp < datetime('now', ?1)",
+                params![threshold],
+            )
+            .context("Failed to purge decisions")?;
+        let total = outcomes_deleted + decisions_deleted;
+        if total > 0 {
+            tracing::info!(
+                outcomes = outcomes_deleted,
+                decisions = decisions_deleted,
+                days,
+                "purged old records"
+            );
+        }
+        Ok(total)
+    }
+
     /// Get a reference to the underlying connection (for testing).
     #[cfg(test)]
     #[allow(dead_code)]
@@ -1251,6 +1286,85 @@ mod tests {
             found.fallback_reason,
             Some("agent_available: Critical failure".to_string())
         );
+    }
+
+    // -- Stats across task types / languages --
+
+    // -- Data retention (purge) --
+
+    #[test]
+    fn purge_older_than_deletes_old_records() {
+        let db = setup_db();
+        insert_test_agent(&db, "claude_code");
+
+        let decision = sample_decision();
+        let decision_id = db.insert_decision(&decision).unwrap();
+        let outcome = sample_outcome(decision_id);
+        db.insert_outcome(&outcome).unwrap();
+
+        // Backdate timestamps to 100 days ago so purge can find them.
+        db.conn
+            .execute(
+                "UPDATE decisions SET timestamp = datetime('now', '-100 days')",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "UPDATE outcomes SET timestamp = datetime('now', '-100 days')",
+                [],
+            )
+            .unwrap();
+
+        // Purge records older than 30 days.
+        let deleted = db.purge_older_than(30).unwrap();
+        assert_eq!(deleted, 2); // 1 decision + 1 outcome
+
+        // Verify tables are empty.
+        let d_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM decisions", [], |row| row.get(0))
+            .unwrap();
+        let o_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM outcomes", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(d_count, 0);
+        assert_eq!(o_count, 0);
+    }
+
+    #[test]
+    fn purge_older_than_keeps_recent() {
+        let db = setup_db();
+        insert_test_agent(&db, "claude_code");
+
+        let decision = sample_decision();
+        let decision_id = db.insert_decision(&decision).unwrap();
+        let outcome = sample_outcome(decision_id);
+        db.insert_outcome(&outcome).unwrap();
+
+        // Purge with 30 days should keep records inserted just now.
+        let deleted = db.purge_older_than(30).unwrap();
+        assert_eq!(deleted, 0);
+
+        // Verify records still exist.
+        let d_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM decisions", [], |row| row.get(0))
+            .unwrap();
+        let o_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM outcomes", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(d_count, 1);
+        assert_eq!(o_count, 1);
+    }
+
+    #[test]
+    fn purge_empty_db_returns_zero() {
+        let db = setup_db();
+        let deleted = db.purge_older_than(0).unwrap();
+        assert_eq!(deleted, 0);
     }
 
     // -- Stats across task types / languages --

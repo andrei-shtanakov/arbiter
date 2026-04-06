@@ -6,6 +6,8 @@
 
 use std::path::PathBuf;
 use std::process;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use arbiter_core::policy::decision_tree::DecisionTree;
 use arbiter_mcp::{agents, config, db, server};
@@ -219,6 +221,13 @@ fn main() {
     }
     info!(path = %args.db.display(), "database ready");
 
+    // Retention: purge records older than 90 days on startup.
+    match database.purge_older_than(90) {
+        Ok(n) if n > 0 => info!(deleted = n, "startup retention purge"),
+        Ok(_) => {}
+        Err(e) => eprintln!("WARNING: retention purge failed: {e:#}"),
+    }
+
     // Create agent registry
     let registry = match agents::AgentRegistry::new(&database, &config.agents) {
         Ok(r) => r,
@@ -231,8 +240,23 @@ fn main() {
     // Create metrics collector
     let metrics = arbiter_mcp::metrics::Metrics::new();
 
+    // Create shutdown flag and register signal handlers
+    let shutdown = Arc::new(AtomicBool::new(false));
+    for sig in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
+        if let Err(e) = signal_hook::flag::register(sig, Arc::clone(&shutdown)) {
+            eprintln!("WARNING: failed to register signal handler: {e}");
+        }
+    }
+
     // Create and run MCP server
-    let mut server = server::McpServer::new(config, &database, tree.as_ref(), registry, &metrics);
+    let mut server = server::McpServer::new(
+        config,
+        &database,
+        tree.as_ref(),
+        registry,
+        &metrics,
+        shutdown,
+    );
     if let Err(e) = server.run() {
         eprintln!("server error: {e:#}");
         process::exit(1);
