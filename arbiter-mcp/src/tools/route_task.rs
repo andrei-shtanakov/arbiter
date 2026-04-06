@@ -128,6 +128,7 @@ fn to_system_context(constraints: &Constraints, total_running: u32) -> SystemCon
 /// 9. Log decision to SQLite
 /// 10. Increment running_tasks for chosen agent
 /// 11. Return decision with audit trail
+#[allow(clippy::too_many_arguments)]
 pub fn execute(
     task_id: &str,
     task: &TaskInput,
@@ -136,6 +137,7 @@ pub fn execute(
     registry: &AgentRegistry,
     db: &Database,
     invariant_config: &InvariantConfig,
+    metrics: &crate::metrics::Metrics,
 ) -> Result<RouteResult> {
     let start = Instant::now();
     let thresholds = to_thresholds(invariant_config);
@@ -168,6 +170,11 @@ pub fn execute(
             warnings: vec!["All agents exceeded failure threshold".to_string()],
         };
         log_decision(db, task_id, task, constraints, &result);
+        metrics.record_decision(
+            result.inference_us as u64,
+            result.action == AgentAction::Fallback,
+            result.action == AgentAction::Reject,
+        );
         return Ok(result);
     }
 
@@ -223,6 +230,11 @@ pub fn execute(
             warnings,
         };
         log_decision(db, task_id, task, constraints, &result);
+        metrics.record_decision(
+            result.inference_us as u64,
+            result.action == AgentAction::Fallback,
+            result.action == AgentAction::Reject,
+        );
         return Ok(result);
     }
 
@@ -341,6 +353,12 @@ pub fn execute(
             db.increment_running_tasks(agent_id)
                 .context("failed to increment running_tasks")?;
 
+            metrics.record_decision(
+                result.inference_us as u64,
+                result.action == AgentAction::Fallback,
+                result.action == AgentAction::Reject,
+            );
+
             info!(
                 task_id = task_id,
                 agent = %agent_id,
@@ -399,6 +417,12 @@ pub fn execute(
     };
 
     log_decision(db, task_id, task, constraints, &result);
+
+    metrics.record_decision(
+        result.inference_us as u64,
+        result.action == AgentAction::Fallback,
+        result.action == AgentAction::Reject,
+    );
 
     info!(
         task_id = task_id,
@@ -704,6 +728,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 
@@ -744,6 +769,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 
@@ -772,6 +798,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 
@@ -797,6 +824,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 
@@ -825,6 +853,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 
@@ -899,6 +928,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 
@@ -975,6 +1005,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
         let elapsed = start.elapsed();
@@ -1100,6 +1131,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 
@@ -1188,6 +1220,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 
@@ -1271,6 +1304,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 
@@ -1336,6 +1370,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 
@@ -1397,6 +1432,7 @@ mod tests {
                 &registry,
                 &db,
                 &invariant_cfg,
+                &crate::metrics::Metrics::new(),
             )
             .unwrap();
 
@@ -1465,6 +1501,7 @@ mod tests {
             &registry,
             &db,
             &invariant_cfg,
+            &crate::metrics::Metrics::new(),
         )
         .unwrap();
 

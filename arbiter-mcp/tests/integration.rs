@@ -245,6 +245,7 @@ fn it_01_happy_path() {
         &registry,
         &db,
         &invariant_cfg,
+        &arbiter_mcp::metrics::Metrics::new(),
     )
     .unwrap();
     let elapsed = start.elapsed();
@@ -386,6 +387,7 @@ fn it_02_fallback_on_scope_conflict() {
         &registry,
         &db,
         &invariant_cfg,
+        &arbiter_mcp::metrics::Metrics::new(),
     )
     .unwrap();
 
@@ -484,6 +486,7 @@ fn it_03_all_rejected() {
         &registry,
         &db,
         &invariant_cfg,
+        &arbiter_mcp::metrics::Metrics::new(),
     )
     .unwrap();
 
@@ -578,6 +581,7 @@ fn it_04_cold_start() {
         &registry,
         &db,
         &invariant_cfg,
+        &arbiter_mcp::metrics::Metrics::new(),
     )
     .unwrap();
 
@@ -905,6 +909,7 @@ fn it_07_concurrent_routing_3x() {
                 &registry,
                 &db,
                 &invariant_cfg,
+                &arbiter_mcp::metrics::Metrics::new(),
             )
             .unwrap();
 
@@ -964,8 +969,9 @@ fn mcp_server_handshake_and_tools_list() {
     db.migrate().unwrap();
     let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
     let config = test_config();
+    let metrics = arbiter_mcp::metrics::Metrics::new();
     let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(config, &db, Some(&tree), registry);
+    let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
 
     // Step 1: Initialize
     let resp = dispatch(
@@ -994,12 +1000,13 @@ fn mcp_server_handshake_and_tools_list() {
     assert!(resp.error.is_none());
     let result = resp.result.unwrap();
     let tools = result["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 3, "should have exactly 3 tools");
+    assert_eq!(tools.len(), 4, "should have exactly 4 tools");
 
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"route_task"));
     assert!(names.contains(&"report_outcome"));
     assert!(names.contains(&"get_agent_status"));
+    assert!(names.contains(&"get_metrics"));
 }
 
 /// Verifies JSON-RPC error codes for protocol violations.
@@ -1009,8 +1016,9 @@ fn mcp_protocol_error_handling() {
     db.migrate().unwrap();
     let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
     let config = test_config();
+    let metrics = arbiter_mcp::metrics::Metrics::new();
     let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(config, &db, Some(&tree), registry);
+    let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
 
     // Unknown method → -32601
     let resp = dispatch(
@@ -1040,8 +1048,9 @@ fn mcp_route_task_e2e() {
     db.migrate().unwrap();
     let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
     let config = test_config();
+    let metrics = arbiter_mcp::metrics::Metrics::new();
     let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(config, &db, Some(&tree), registry);
+    let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -1094,8 +1103,9 @@ fn mcp_report_and_status_e2e() {
     db.migrate().unwrap();
     let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
     let config = test_config();
+    let metrics = arbiter_mcp::metrics::Metrics::new();
     let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(config, &db, Some(&tree), registry);
+    let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
 
     // Route a task first
     let route_req = serde_json::json!({

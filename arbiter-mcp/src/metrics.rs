@@ -54,12 +54,7 @@ impl Metrics {
     /// Increments the decisions counter, optionally increments
     /// fallback/reject counters, and updates latency statistics.
     /// Uses CAS loops for min/max updates.
-    pub fn record_decision(
-        &self,
-        latency_us: u64,
-        is_fallback: bool,
-        is_reject: bool,
-    ) {
+    pub fn record_decision(&self, latency_us: u64, is_fallback: bool, is_reject: bool) {
         self.decisions_total.fetch_add(1, Ordering::Relaxed);
         if is_fallback {
             self.fallbacks_total.fetch_add(1, Ordering::Relaxed);
@@ -69,8 +64,7 @@ impl Metrics {
         }
 
         self.latency_count.fetch_add(1, Ordering::Relaxed);
-        self.latency_sum_us
-            .fetch_add(latency_us, Ordering::Relaxed);
+        self.latency_sum_us.fetch_add(latency_us, Ordering::Relaxed);
 
         let latency_signed = latency_us as i64;
 

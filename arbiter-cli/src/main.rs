@@ -197,6 +197,7 @@ fn bench_route_throughput() -> Result<()> {
             &registry,
             &db,
             &invariant_cfg,
+            &arbiter_mcp::metrics::Metrics::new(),
         );
         // Reset running tasks for warmup
         let _ = db.decrement_running_tasks("claude_code");
@@ -215,6 +216,7 @@ fn bench_route_throughput() -> Result<()> {
             &registry,
             &db,
             &invariant_cfg,
+            &arbiter_mcp::metrics::Metrics::new(),
         )?;
         // Don't accumulate running tasks (would exhaust slots quickly)
         let _ = db.decrement_running_tasks("claude_code");
@@ -306,6 +308,7 @@ fn bench_route_latency_p99() -> Result<()> {
             &registry,
             &db,
             &invariant_cfg,
+            &arbiter_mcp::metrics::Metrics::new(),
         )?;
         let elapsed = start.elapsed();
         latencies_us.push(elapsed.as_micros());
@@ -477,6 +480,7 @@ fn bench_memory_usage() -> Result<()> {
             &registry,
             &db,
             &invariant_cfg,
+            &arbiter_mcp::metrics::Metrics::new(),
         )?;
 
         // Report outcome

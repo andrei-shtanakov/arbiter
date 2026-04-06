@@ -228,8 +228,11 @@ fn main() {
         }
     };
 
+    // Create metrics collector
+    let metrics = arbiter_mcp::metrics::Metrics::new();
+
     // Create and run MCP server
-    let mut server = server::McpServer::new(config, &database, tree.as_ref(), registry);
+    let mut server = server::McpServer::new(config, &database, tree.as_ref(), registry, &metrics);
     if let Err(e) = server.run() {
         eprintln!("server error: {e:#}");
         process::exit(1);

@@ -16,6 +16,7 @@ use arbiter_core::types::{Constraints, TaskInput};
 use crate::agents::AgentRegistry;
 use crate::config::ArbiterConfig;
 use crate::db::Database;
+use crate::metrics::Metrics;
 use crate::tools::{agent_status, report_outcome, route_task};
 
 // ---------------------------------------------------------------------------
@@ -146,6 +147,14 @@ fn tool_schemas() -> Value {
                         "agent_id": { "type": "string", "description": "Agent ID to query. Omit to get all agents." }
                     }
                 }
+            },
+            {
+                "name": "get_metrics",
+                "description": "Get current server metrics: decision counts, latency stats, fallback and reject rates.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
             }
         ]
     })
@@ -162,16 +171,18 @@ pub struct McpServer<'a> {
     db: &'a Database,
     tree: Option<&'a DecisionTree>,
     registry: AgentRegistry<'a>,
+    metrics: &'a Metrics,
 }
 
 impl<'a> McpServer<'a> {
     /// Create a new MCP server with the given configuration, database,
-    /// decision tree, and agent registry.
+    /// decision tree, agent registry, and metrics collector.
     pub fn new(
         config: ArbiterConfig,
         db: &'a Database,
         tree: Option<&'a DecisionTree>,
         registry: AgentRegistry<'a>,
+        metrics: &'a Metrics,
     ) -> Self {
         Self {
             config,
@@ -179,6 +190,7 @@ impl<'a> McpServer<'a> {
             db,
             tree,
             registry,
+            metrics,
         }
     }
 
@@ -345,6 +357,7 @@ impl<'a> McpServer<'a> {
                 let arguments = params.get("arguments");
                 self.handle_get_agent_status(req, arguments)
             }
+            "get_metrics" => self.handle_get_metrics(req),
             _ => JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id: req.id.clone(),
@@ -491,6 +504,7 @@ impl<'a> McpServer<'a> {
             &self.registry,
             self.db,
             &self.config.invariants,
+            self.metrics,
         ) {
             Ok(mut result) => {
                 // Merge any input warnings into the result
@@ -657,6 +671,23 @@ impl<'a> McpServer<'a> {
             }
         }
     }
+
+    /// Handle get_metrics: return server metrics snapshot.
+    fn handle_get_metrics(&self, req: &JsonRpcRequest) -> JsonRpcResponse {
+        debug!("get_metrics called");
+        let response_json = crate::tools::get_metrics::execute(self.metrics);
+        JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: req.id.clone(),
+            result: Some(serde_json::json!({
+                "content": [{
+                    "type": "text",
+                    "text": response_json.to_string()
+                }]
+            })),
+            error: None,
+        }
+    }
 }
 
 /// Write a JSON-RPC response as a single line to the writer.
@@ -761,8 +792,9 @@ mod tests {
     #[test]
     fn handle_initialize_returns_capabilities() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
@@ -779,8 +811,9 @@ mod tests {
     #[test]
     fn handle_initialized_notification_no_id() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
@@ -792,8 +825,9 @@ mod tests {
     #[test]
     fn handle_initialized_with_id() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":2,"method":"initialized"}"#,
@@ -803,10 +837,11 @@ mod tests {
     }
 
     #[test]
-    fn handle_tools_list_returns_3_tools() {
+    fn handle_tools_list_returns_4_tools() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#,
@@ -816,19 +851,21 @@ mod tests {
         assert!(resp.error.is_none());
         let result = resp.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 4);
 
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"route_task"));
         assert!(names.contains(&"report_outcome"));
         assert!(names.contains(&"get_agent_status"));
+        assert!(names.contains(&"get_metrics"));
     }
 
     #[test]
     fn handle_unknown_method_returns_32601() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":4,"method":"nonexistent"}"#,
@@ -843,8 +880,9 @@ mod tests {
     #[test]
     fn tools_call_missing_params_returns_32602() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":5,"method":"tools/call"}"#,
@@ -859,8 +897,9 @@ mod tests {
     #[test]
     fn tools_call_unknown_tool_returns_32602() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"bad_tool"}}"#,
@@ -875,8 +914,9 @@ mod tests {
     #[test]
     fn route_task_missing_task_id_returns_32602() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"route_task","arguments":{"task":{}}}}"#,
@@ -891,8 +931,9 @@ mod tests {
     #[test]
     fn route_task_missing_task_returns_32602() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"t1"}}}"#,
@@ -907,8 +948,9 @@ mod tests {
     #[test]
     fn route_task_returns_decision() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"t1","task":{"type":"bugfix","language":"python","complexity":"simple","priority":"normal"}}}}"#,
@@ -930,8 +972,9 @@ mod tests {
     #[test]
     fn report_outcome_missing_fields_returns_32602() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"report_outcome","arguments":{"task_id":"t1"}}}"#,
@@ -946,8 +989,9 @@ mod tests {
     #[test]
     fn report_outcome_returns_result() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"report_outcome","arguments":{"task_id":"t1","agent_id":"claude_code","status":"success"}}}"#,
@@ -968,8 +1012,9 @@ mod tests {
     #[test]
     fn get_agent_status_stub_returns_agents() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"get_agent_status","arguments":{}}}"#,
@@ -983,8 +1028,9 @@ mod tests {
     #[test]
     fn route_task_no_arguments_returns_32602() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"route_task"}}"#,
@@ -999,8 +1045,9 @@ mod tests {
     #[test]
     fn route_task_unknown_task_type_defaults_to_feature() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"unknown-type","task":{"type":"magic_spell","language":"python","complexity":"simple","priority":"normal"}}}}"#,
@@ -1027,8 +1074,9 @@ mod tests {
     #[test]
     fn route_task_unknown_language_defaults_to_other() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"unknown-lang","task":{"type":"bugfix","language":"cobol","complexity":"simple","priority":"normal"}}}}"#,
@@ -1055,8 +1103,9 @@ mod tests {
     #[test]
     fn route_task_degraded_mode_no_tree() {
         let (db, _tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, None, registry); // No tree
+        let mut server = McpServer::new(config, &db, None, registry, &metrics); // No tree
         let resp = dispatch(
             &mut server,
             r#"{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"route_task","arguments":{"task_id":"no-tree","task":{"type":"bugfix","language":"python","complexity":"simple","priority":"normal"}}}}"#,
@@ -1089,8 +1138,9 @@ mod tests {
     #[test]
     fn response_ids_match_request() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
 
         // Numeric id
         let resp = dispatch(
@@ -1112,8 +1162,9 @@ mod tests {
     #[test]
     fn report_outcome_error_uses_server_error_code() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
 
         // Send report_outcome with invalid status (should fail with business logic error)
         let resp = dispatch(
@@ -1131,8 +1182,9 @@ mod tests {
     #[test]
     fn get_agent_status_error_uses_server_error_code() {
         let (db, tree, config) = setup_server();
+        let metrics = Metrics::new();
         let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-        let mut server = McpServer::new(config, &db, Some(&tree), registry);
+        let mut server = McpServer::new(config, &db, Some(&tree), registry, &metrics);
 
         // Send get_agent_status with unknown agent_id (should fail with business logic error)
         let resp = dispatch(
