@@ -16,3 +16,8 @@ rusqlite = { workspace = true }
 tempfile = "3"
 
 [dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "routing"
+harness = false

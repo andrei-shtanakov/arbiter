@@ -20,3 +20,4 @@ toml = "0.8"
 chrono = "0.4"
 signal-hook = "0.3"
 notify = { version = "6", default-features = false, features = ["macos_fsevent"] }
+criterion = { version = "0.5", features = ["html_reports"] }
