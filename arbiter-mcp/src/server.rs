@@ -28,7 +28,6 @@ use crate::tools::{agent_status, report_outcome, route_task};
 /// Incoming JSON-RPC 2.0 message (request or notification).
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
-    #[allow(dead_code)]
     pub jsonrpc: String,
     #[serde(default)]
     pub id: Option<Value>,
@@ -61,6 +60,9 @@ pub struct JsonRpcError {
 // Standard JSON-RPC error codes
 const METHOD_NOT_FOUND: i32 = -32601;
 const INVALID_PARAMS: i32 = -32602;
+
+/// Maximum allowed line length (1 MB) to protect against oversized payloads.
+const MAX_LINE_LENGTH: usize = 1_048_576;
 
 /// Known task type values accepted by the routing engine.
 const KNOWN_TASK_TYPES: &[&str] = &[
@@ -236,6 +238,29 @@ impl McpServer {
                 continue;
             }
 
+            if line.len() > MAX_LINE_LENGTH {
+                warn!(
+                    len = line.len(),
+                    "line exceeds maximum length, rejecting"
+                );
+                let resp = JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: None,
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32600,
+                        message: format!(
+                            "Request too large: {} bytes (max {})",
+                            line.len(),
+                            MAX_LINE_LENGTH
+                        ),
+                        data: None,
+                    }),
+                };
+                write_response(&mut stdout, &resp)?;
+                continue;
+            }
+
             debug!("recv: {line}");
 
             let request: JsonRpcRequest = match serde_json::from_str(&line) {
@@ -271,6 +296,23 @@ impl McpServer {
     ///
     /// Returns `None` for notifications (no `id` field).
     pub fn dispatch(&mut self, req: &JsonRpcRequest) -> Option<JsonRpcResponse> {
+        if req.jsonrpc != "2.0" {
+            return Some(JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: req.id.clone(),
+                result: None,
+                error: Some(JsonRpcError {
+                    code: -32600,
+                    message: format!(
+                        "Invalid JSON-RPC version: \
+                         expected \"2.0\", got {:?}",
+                        req.jsonrpc
+                    ),
+                    data: None,
+                }),
+            });
+        }
+
         match req.method.as_str() {
             "initialize" => Some(self.handle_initialize(req)),
             "notifications/initialized" | "initialized" => {
@@ -1251,5 +1293,20 @@ mod tests {
         let err = resp.error.unwrap();
         assert_eq!(err.code, -32000);
         assert!(err.message.contains("agent not found"));
+    }
+
+    #[test]
+    fn invalid_jsonrpc_version_rejected() {
+        let (db, tree, config) = setup_server();
+        let mut server = make_server(db, Some(tree), config);
+        let req = JsonRpcRequest {
+            jsonrpc: "1.0".to_string(),
+            id: Some(serde_json::json!(1)),
+            method: "tools/list".to_string(),
+            params: None,
+        };
+        let resp = server.dispatch(&req).unwrap();
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, -32600);
     }
 }
