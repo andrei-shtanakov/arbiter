@@ -157,6 +157,14 @@ fn tool_schemas() -> Value {
                     "type": "object",
                     "properties": {}
                 }
+            },
+            {
+                "name": "get_budget_status",
+                "description": "Get budget overview: total spent, budget limit, remaining amount, and per-agent cost breakdown.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
             }
         ]
     })
@@ -377,6 +385,7 @@ impl McpServer {
                 self.handle_get_agent_status(req, arguments)
             }
             "get_metrics" => self.handle_get_metrics(req),
+            "get_budget_status" => self.handle_get_budget_status(req),
             _ => JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id: req.id.clone(),
@@ -715,6 +724,38 @@ impl McpServer {
             error: None,
         }
     }
+
+    /// Handle get_budget_status: return budget overview with per-agent costs.
+    fn handle_get_budget_status(&self, req: &JsonRpcRequest) -> JsonRpcResponse {
+        debug!("get_budget_status called");
+        let config = self.config.read().unwrap();
+        match crate::tools::get_budget::execute(&self.db, &config) {
+            Ok(response_json) => JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: req.id.clone(),
+                result: Some(serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": response_json.to_string()
+                    }]
+                })),
+                error: None,
+            },
+            Err(e) => {
+                error!("get_budget_status failed: {e:#}");
+                JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: req.id.clone(),
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32000,
+                        message: format!("{e}"),
+                        data: None,
+                    }),
+                }
+            }
+        }
+    }
 }
 
 /// Write a JSON-RPC response as a single line to the writer.
@@ -872,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_tools_list_returns_4_tools() {
+    fn handle_tools_list_returns_5_tools() {
         let (db, tree, config) = setup_server();
         let mut server = make_server(db, Some(tree), config);
         let resp = dispatch(
@@ -884,13 +925,14 @@ mod tests {
         assert!(resp.error.is_none());
         let result = resp.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 5);
 
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"route_task"));
         assert!(names.contains(&"report_outcome"));
         assert!(names.contains(&"get_agent_status"));
         assert!(names.contains(&"get_metrics"));
+        assert!(names.contains(&"get_budget_status"));
     }
 
     #[test]

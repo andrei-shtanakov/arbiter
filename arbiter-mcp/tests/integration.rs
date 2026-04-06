@@ -1016,13 +1016,14 @@ fn mcp_server_handshake_and_tools_list() {
     assert!(resp.error.is_none());
     let result = resp.result.unwrap();
     let tools = result["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 4, "should have exactly 4 tools");
+    assert_eq!(tools.len(), 5, "should have exactly 5 tools");
 
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"route_task"));
     assert!(names.contains(&"report_outcome"));
     assert!(names.contains(&"get_agent_status"));
     assert!(names.contains(&"get_metrics"));
+    assert!(names.contains(&"get_budget_status"));
 }
 
 /// Verifies JSON-RPC error codes for protocol violations.
