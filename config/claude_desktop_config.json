@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "arbiter": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--release",
+        "--manifest-path",
+        "__ARBITER_DIR__/Cargo.toml",
+        "--bin",
+        "arbiter-mcp",
+        "--",
+        "--config",
+        "__ARBITER_DIR__/config",
+        "--tree",
+        "__ARBITER_DIR__/models/agent_policy_tree.json",
+        "--db",
+        "__ARBITER_DIR__/arbiter.db",
+        "--log-level",
+        "info"
+      ]
+    }
+  }
+}
