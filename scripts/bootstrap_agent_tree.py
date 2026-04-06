@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.model_selection import cross_val_score
 from sklearn.tree import DecisionTreeClassifier
 
 # ---------------------------------------------------------------------------
@@ -452,6 +453,22 @@ def train_and_export(
     X, y = inject_noise(X_raw, y_raw, rng, noise_scale=0.05)
     print(f"After noise injection: {len(X)} examples")
 
+    # Cross-validation on noised data
+    cv_clf = DecisionTreeClassifier(
+        max_depth=7,
+        min_samples_leaf=5,
+        random_state=seed,
+    )
+    cv_scores = cross_val_score(cv_clf, X, y, cv=5, scoring="accuracy")
+    cv_mean = cv_scores.mean()
+    cv_std = cv_scores.std()
+    print(f"\n5-fold CV accuracy: {cv_mean:.4f} (+/- {cv_std:.4f})")
+    print(f"  Per-fold: {[f'{s:.4f}' for s in cv_scores]}")
+
+    assert cv_mean > 0.90, (
+        f"Cross-validation accuracy {cv_mean:.4f} below 90% threshold"
+    )
+
     # Train decision tree
     clf = DecisionTreeClassifier(
         max_depth=7,
@@ -498,6 +515,8 @@ def train_and_export(
 
     return {
         "accuracy": accuracy,
+        "cv_mean": cv_mean,
+        "cv_std": cv_std,
         "depth": clf.get_depth(),
         "node_count": clf.tree_.node_count,
         "n_examples": len(X),
@@ -527,6 +546,13 @@ def main() -> None:
 
     if stats["accuracy"] < 0.95:
         print("\nWARNING: accuracy below 95%%!", file=sys.stderr)
+        sys.exit(1)
+
+    if stats["cv_mean"] < 0.90:
+        print(
+            f"\nWARNING: CV accuracy {stats['cv_mean']:.4f} below 90%!",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     print("\nDone.")
