@@ -3,7 +3,10 @@
 //! Tests IT-01 through IT-07 verify end-to-end behavior of the routing,
 //! feedback, and status query subsystems through the public API.
 
+#![allow(clippy::arc_with_non_send_sync)]
+
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use arbiter_core::policy::decision_tree::DecisionTree;
 use arbiter_core::types::*;
@@ -210,7 +213,8 @@ fn it_01_happy_path() {
     db.migrate().unwrap();
     let tree = bootstrap_tree();
     let agents = test_agents();
-    let registry = AgentRegistry::new(&db, &agents).unwrap();
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
     let invariant_cfg = test_invariant_config();
 
     let task = TaskInput {
@@ -345,7 +349,8 @@ fn it_02_fallback_on_scope_conflict() {
     db.migrate().unwrap();
     let tree = bootstrap_tree();
     let agents = test_agents();
-    let registry = AgentRegistry::new(&db, &agents).unwrap();
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
     let invariant_cfg = test_invariant_config();
 
     // Task that touches src/main.py
@@ -446,7 +451,8 @@ fn it_03_all_rejected() {
     db.migrate().unwrap();
     let tree = bootstrap_tree();
     let agents = test_agents();
-    let registry = AgentRegistry::new(&db, &agents).unwrap();
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
     let invariant_cfg = test_invariant_config();
 
     let task = TaskInput {
@@ -546,7 +552,8 @@ fn it_04_cold_start() {
     db.migrate().unwrap();
     let tree = bootstrap_tree();
     let agents = test_agents();
-    let registry = AgentRegistry::new(&db, &agents).unwrap();
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
     let invariant_cfg = test_invariant_config();
 
     // Fresh DB, no outcomes recorded — agents have no stats
@@ -643,7 +650,8 @@ fn it_05_stats_accumulation_10x() {
     db.migrate().unwrap();
     let agents = test_agents();
     let config = test_config();
-    let _registry = AgentRegistry::new(&db, &agents).unwrap();
+    let db = Arc::new(db);
+    let _registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
     let mut total_duration = 0.0;
     let mut total_cost = 0.0;
@@ -723,7 +731,8 @@ fn it_06_agent_failure_detection() {
     db.migrate().unwrap();
     let agents = test_agents();
     let config = test_config(); // max_failures_24h = 5
-    let _registry = AgentRegistry::new(&db, &agents).unwrap();
+    let db = Arc::new(db);
+    let _registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
     // Report 5 failures (at threshold, not over)
     for i in 0..5 {
@@ -815,7 +824,8 @@ fn it_07_concurrent_routing_3x() {
         let db = Database::open(&db_path).unwrap();
         db.migrate().unwrap();
         let agents = test_agents();
-        let _registry = AgentRegistry::new(&db, &agents).unwrap();
+        let db = Arc::new(db);
+        let _registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
     }
 
     // Load the bootstrap tree (shared across threads)
@@ -886,7 +896,8 @@ fn it_07_concurrent_routing_3x() {
 
         handles.push(thread::spawn(move || {
             let db = Database::open(&path).unwrap();
-            let registry = AgentRegistry::new(&db, &agents).unwrap();
+            let db = Arc::new(db);
+            let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
             let constraints = Constraints {
                 preferred_agent: None,
@@ -969,16 +980,14 @@ fn mcp_server_handshake_and_tools_list() {
     db.migrate().unwrap();
     let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
     let config = test_config();
-    let metrics = arbiter_mcp::metrics::Metrics::new();
-    let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(
-        config,
-        &db,
-        Some(&tree),
-        registry,
-        &metrics,
-        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    );
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &config.agents).unwrap();
+    let metrics = Arc::new(arbiter_mcp::metrics::Metrics::new());
+    let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let tree = Arc::new(RwLock::new(Some(tree)));
+    let config = Arc::new(RwLock::new(config));
+    let registry = Arc::new(RwLock::new(registry));
+    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
 
     // Step 1: Initialize
     let resp = dispatch(
@@ -1023,16 +1032,14 @@ fn mcp_protocol_error_handling() {
     db.migrate().unwrap();
     let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
     let config = test_config();
-    let metrics = arbiter_mcp::metrics::Metrics::new();
-    let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(
-        config,
-        &db,
-        Some(&tree),
-        registry,
-        &metrics,
-        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    );
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &config.agents).unwrap();
+    let metrics = Arc::new(arbiter_mcp::metrics::Metrics::new());
+    let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let tree = Arc::new(RwLock::new(Some(tree)));
+    let config = Arc::new(RwLock::new(config));
+    let registry = Arc::new(RwLock::new(registry));
+    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
 
     // Unknown method → -32601
     let resp = dispatch(
@@ -1062,16 +1069,14 @@ fn mcp_route_task_e2e() {
     db.migrate().unwrap();
     let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
     let config = test_config();
-    let metrics = arbiter_mcp::metrics::Metrics::new();
-    let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(
-        config,
-        &db,
-        Some(&tree),
-        registry,
-        &metrics,
-        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    );
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &config.agents).unwrap();
+    let metrics = Arc::new(arbiter_mcp::metrics::Metrics::new());
+    let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let tree = Arc::new(RwLock::new(Some(tree)));
+    let config = Arc::new(RwLock::new(config));
+    let registry = Arc::new(RwLock::new(registry));
+    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -1124,16 +1129,14 @@ fn mcp_report_and_status_e2e() {
     db.migrate().unwrap();
     let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
     let config = test_config();
-    let metrics = arbiter_mcp::metrics::Metrics::new();
-    let registry = AgentRegistry::new(&db, &config.agents).unwrap();
-    let mut server = McpServer::new(
-        config,
-        &db,
-        Some(&tree),
-        registry,
-        &metrics,
-        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    );
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &config.agents).unwrap();
+    let metrics = Arc::new(arbiter_mcp::metrics::Metrics::new());
+    let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let tree = Arc::new(RwLock::new(Some(tree)));
+    let config = Arc::new(RwLock::new(config));
+    let registry = Arc::new(RwLock::new(registry));
+    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
 
     // Route a task first
     let route_req = serde_json::json!({

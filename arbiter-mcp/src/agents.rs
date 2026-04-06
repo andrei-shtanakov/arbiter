@@ -3,8 +3,8 @@
 //! Loads agent definitions from TOML config, upserts them into the database,
 //! and provides runtime queries for agent state, stats, and load.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -36,15 +36,15 @@ const CACHE_TTL: Duration = Duration::from_secs(1);
 /// On construction, loads agents from config and upserts them into the
 /// database. At runtime, provides queries for feature vector building,
 /// invariant checks, and status reporting.
-pub struct AgentRegistry<'a> {
-    db: &'a Database,
+pub struct AgentRegistry {
+    db: Arc<Database>,
     configs: HashMap<String, AgentConfig>,
-    cache: RefCell<HashMap<String, CachedAgentInfo>>,
+    cache: Mutex<HashMap<String, CachedAgentInfo>>,
 }
 
-impl<'a> AgentRegistry<'a> {
+impl AgentRegistry {
     /// Create a registry from config agents, upserting each into the database.
-    pub fn new(db: &'a Database, agents: &HashMap<String, AgentConfig>) -> Result<Self> {
+    pub fn new(db: Arc<Database>, agents: &HashMap<String, AgentConfig>) -> Result<Self> {
         for (id, config) in agents {
             let config_json = serde_json::to_string(config)?;
             db.upsert_agent(
@@ -60,7 +60,7 @@ impl<'a> AgentRegistry<'a> {
         Ok(Self {
             db,
             configs: agents.clone(),
-            cache: RefCell::new(HashMap::new()),
+            cache: Mutex::new(HashMap::new()),
         })
     }
 
@@ -70,7 +70,7 @@ impl<'a> AgentRegistry<'a> {
     pub fn get_agent_info(&self, agent_id: &str) -> Result<Option<AgentInfo>> {
         // Check cache first.
         {
-            let cache = self.cache.borrow();
+            let cache = self.cache.lock().unwrap();
             if let Some(entry) = cache.get(agent_id) {
                 if entry.cached_at.elapsed() < CACHE_TTL {
                     return Ok(Some(entry.info.clone()));
@@ -114,7 +114,7 @@ impl<'a> AgentRegistry<'a> {
         };
 
         // Update cache.
-        self.cache.borrow_mut().insert(
+        self.cache.lock().unwrap().insert(
             agent_id.to_string(),
             CachedAgentInfo {
                 info: info.clone(),
@@ -127,12 +127,12 @@ impl<'a> AgentRegistry<'a> {
 
     /// Invalidate the cached entry for a specific agent.
     pub fn invalidate_cache(&self, agent_id: &str) {
-        self.cache.borrow_mut().remove(agent_id);
+        self.cache.lock().unwrap().remove(agent_id);
     }
 
     /// Invalidate all cached agent entries.
     pub fn invalidate_all_cache(&self) {
-        self.cache.borrow_mut().clear();
+        self.cache.lock().unwrap().clear();
     }
 
     /// Get agent info for all registered agents.
@@ -200,17 +200,17 @@ mod tests {
         agents
     }
 
-    fn setup() -> (Database, HashMap<String, AgentConfig>) {
+    fn setup() -> (Arc<Database>, HashMap<String, AgentConfig>) {
         let db = Database::open_in_memory().unwrap();
         db.migrate().unwrap();
         let agents = test_agents();
-        (db, agents)
+        (Arc::new(db), agents)
     }
 
     #[test]
     fn new_registry_upserts_agents() {
         let (db, agents) = setup();
-        let _registry = AgentRegistry::new(&db, &agents).unwrap();
+        let _registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         // Verify agents are in the database.
         let ids = db.list_agent_ids().unwrap();
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn get_agent_info_returns_config_and_defaults() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         let info = registry
             .get_agent_info("claude_code")
@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn get_agent_info_unknown_returns_none() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         let info = registry.get_agent_info("nonexistent").unwrap();
         assert!(info.is_none());
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn get_agent_info_reflects_stats() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         // Record a decision + outcome.
         let decision = DecisionRecord {
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn running_tasks_reflected_in_agent_info() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         db.increment_running_tasks("claude_code").unwrap();
         registry.invalidate_cache("claude_code");
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn get_all_agent_info_returns_all() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         let all = registry.get_all_agent_info().unwrap();
         assert_eq!(all.len(), 2);
@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn total_running_tasks_via_registry() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         db.increment_running_tasks("claude_code").unwrap();
         db.increment_running_tasks("aider").unwrap();
@@ -345,12 +345,12 @@ mod tests {
         let (db, agents) = setup();
 
         // First registry.
-        let _reg1 = AgentRegistry::new(&db, &agents).unwrap();
+        let _reg1 = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         db.increment_running_tasks("claude_code").unwrap();
         db.increment_running_tasks("claude_code").unwrap();
 
         // Second registry (simulating restart with re-upsert).
-        let reg2 = AgentRegistry::new(&db, &agents).unwrap();
+        let reg2 = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let info = reg2.get_agent_info("claude_code").unwrap().unwrap();
 
         // running_tasks should be preserved (upsert doesn't reset them).
@@ -362,7 +362,7 @@ mod tests {
     #[test]
     fn cache_hit_avoids_stale_data_within_ttl() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         // First call populates cache
         let info1 = registry.get_agent_info("claude_code").unwrap().unwrap();
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn invalidate_cache_forces_refresh() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         let info1 = registry.get_agent_info("claude_code").unwrap().unwrap();
         assert_eq!(info1.running_tasks, 0);

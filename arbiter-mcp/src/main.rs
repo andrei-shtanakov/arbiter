@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::process;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use arbiter_core::policy::decision_tree::DecisionTree;
 use arbiter_mcp::{agents, config, db, server};
@@ -154,6 +154,7 @@ fn init_tracing(level: &str) {
 // Entry point
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::arc_with_non_send_sync)]
 fn main() {
     let args = CliArgs::parse();
 
@@ -221,6 +222,9 @@ fn main() {
     }
     info!(path = %args.db.display(), "database ready");
 
+    // Wrap in Arc for shared ownership (hot-reload ownership model).
+    let database = Arc::new(database);
+
     // Retention: purge records older than 90 days on startup.
     match database.purge_older_than(90) {
         Ok(n) if n > 0 => info!(deleted = n, "startup retention purge"),
@@ -229,7 +233,7 @@ fn main() {
     }
 
     // Create agent registry
-    let registry = match agents::AgentRegistry::new(&database, &config.agents) {
+    let registry = match agents::AgentRegistry::new(Arc::clone(&database), &config.agents) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("failed to create agent registry: {e:#}");
@@ -238,7 +242,12 @@ fn main() {
     };
 
     // Create metrics collector
-    let metrics = arbiter_mcp::metrics::Metrics::new();
+    let metrics = Arc::new(arbiter_mcp::metrics::Metrics::new());
+
+    // Wrap hot-reloadable state in Arc<RwLock>
+    let config = Arc::new(RwLock::new(config));
+    let tree = Arc::new(RwLock::new(tree));
+    let registry = Arc::new(RwLock::new(registry));
 
     // Create shutdown flag and register signal handlers
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -250,11 +259,11 @@ fn main() {
 
     // Create and run MCP server
     let mut server = server::McpServer::new(
-        config,
-        &database,
-        tree.as_ref(),
-        registry,
-        &metrics,
+        Arc::clone(&config),
+        Arc::clone(&database),
+        Arc::clone(&tree),
+        Arc::clone(&registry),
+        Arc::clone(&metrics),
         shutdown,
     );
     if let Err(e) = server.run() {

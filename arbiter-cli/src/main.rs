@@ -4,7 +4,12 @@
 //!   arbiter-cli bench   Run all benchmarks
 //!   arbiter-cli help    Print usage
 
+// Database (rusqlite) is Send but not Sync; Arc is used for shared
+// ownership in the hot-reload model, not for cross-thread access.
+#![allow(clippy::arc_with_non_send_sync)]
+
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -140,9 +145,10 @@ fn bench_route_throughput() -> Result<()> {
 
     let db = Database::open_in_memory()?;
     db.migrate()?;
+    let db = Arc::new(db);
     let tree = load_bootstrap_tree();
     let agents = bench_agents();
-    let registry = AgentRegistry::new(&db, &agents)?;
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents)?;
     let invariant_cfg = bench_invariant_config();
 
     let task_types = [
@@ -262,9 +268,10 @@ fn bench_route_latency_p99() -> Result<()> {
 
     let db = Database::open_in_memory()?;
     db.migrate()?;
+    let db = Arc::new(db);
     let tree = load_bootstrap_tree();
     let agents = bench_agents();
-    let registry = AgentRegistry::new(&db, &agents)?;
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents)?;
     let invariant_cfg = bench_invariant_config();
 
     let n = 100;
@@ -346,9 +353,10 @@ fn bench_report_latency_p99() -> Result<()> {
 
     let db = Database::open_in_memory()?;
     db.migrate()?;
+    let db = Arc::new(db);
     let agents = bench_agents();
     let config = bench_config();
-    let _registry = AgentRegistry::new(&db, &agents)?;
+    let _registry = AgentRegistry::new(Arc::clone(&db), &agents)?;
 
     let n = 100;
     let mut latencies_us = Vec::with_capacity(n);
@@ -433,10 +441,11 @@ fn bench_memory_usage() -> Result<()> {
 
     let db = Database::open_in_memory()?;
     db.migrate()?;
+    let db = Arc::new(db);
     let tree = load_bootstrap_tree();
     let agents = bench_agents();
     let config = bench_config();
-    let registry = AgentRegistry::new(&db, &agents)?;
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents)?;
     let invariant_cfg = bench_invariant_config();
 
     // Measure RSS after initialization
@@ -525,10 +534,11 @@ fn bench_sqlite_size() -> Result<()> {
 
     let db = Database::open(&db_path)?;
     db.migrate()?;
+    let db = Arc::new(db);
 
     // Register agents
     let agents = bench_agents();
-    let _registry = AgentRegistry::new(&db, &agents)?;
+    let _registry = AgentRegistry::new(Arc::clone(&db), &agents)?;
 
     let agent_ids = ["claude_code", "codex_cli", "aider"];
     let n = 10_000;

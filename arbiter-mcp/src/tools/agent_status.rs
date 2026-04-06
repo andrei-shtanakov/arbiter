@@ -268,6 +268,7 @@ mod tests {
     use crate::config::AgentConfig;
     use crate::db::{Database, OutcomeRecord};
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     fn test_agents() -> HashMap<String, AgentConfig> {
         let mut agents = HashMap::new();
@@ -311,11 +312,11 @@ mod tests {
         agents
     }
 
-    fn setup() -> (Database, HashMap<String, AgentConfig>) {
+    fn setup() -> (Arc<Database>, HashMap<String, AgentConfig>) {
         let db = Database::open_in_memory().unwrap();
         db.migrate().unwrap();
         let agents = test_agents();
-        (db, agents)
+        (Arc::new(db), agents)
     }
 
     // -- AC-4.4.1: All agents returned --
@@ -323,7 +324,7 @@ mod tests {
     #[test]
     fn all_agents_returned_without_params() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         let args = serde_json::json!({});
         let result = execute(&args, &db, &registry, 5).unwrap();
@@ -340,7 +341,7 @@ mod tests {
     #[test]
     fn single_agent_returned_with_agent_id() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         let args = serde_json::json!({ "agent_id": "claude_code" });
         let result = execute(&args, &db, &registry, 5).unwrap();
@@ -355,7 +356,7 @@ mod tests {
     #[test]
     fn unknown_agent_returns_error() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         let args = serde_json::json!({ "agent_id": "nonexistent" });
         let result = execute(&args, &db, &registry, 5);
@@ -373,7 +374,7 @@ mod tests {
     #[test]
     fn empty_stats_fresh_start() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         let args = serde_json::json!({ "agent_id": "claude_code" });
         let result = execute(&args, &db, &registry, 5).unwrap();
@@ -393,7 +394,7 @@ mod tests {
     #[test]
     fn capabilities_from_config() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         let args = serde_json::json!({ "agent_id": "claude_code" });
         let result = execute(&args, &db, &registry, 5).unwrap();
@@ -410,7 +411,7 @@ mod tests {
     #[test]
     fn current_load_reflects_running_tasks() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         db.increment_running_tasks("claude_code").unwrap();
 
@@ -428,7 +429,7 @@ mod tests {
     #[test]
     fn state_busy_at_capacity() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         // Fill both slots (max_concurrent = 2)
         db.increment_running_tasks("claude_code").unwrap();
@@ -448,7 +449,7 @@ mod tests {
     #[test]
     fn stats_reflect_outcomes_with_by_language_and_by_type() {
         let (db, agents) = setup();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         // Record outcomes for claude_code
         let outcome1 = OutcomeRecord {

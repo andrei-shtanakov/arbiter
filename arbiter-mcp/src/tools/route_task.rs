@@ -559,6 +559,7 @@ mod tests {
     use crate::config::*;
     use arbiter_core::types::*;
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     fn test_tree_json() -> String {
         serde_json::json!({
@@ -703,18 +704,18 @@ mod tests {
         }
     }
 
-    fn setup() -> (Database, DecisionTree) {
+    fn setup() -> (Arc<Database>, DecisionTree) {
         let db = Database::open_in_memory().unwrap();
         db.migrate().unwrap();
         let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
-        (db, tree)
+        (Arc::new(db), tree)
     }
 
     #[test]
     fn happy_path_assigns_agent() {
         let (db, tree) = setup();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         let task = simple_task();
@@ -748,7 +749,7 @@ mod tests {
     fn all_excluded_rejects() {
         let (db, tree) = setup();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         let task = simple_task();
@@ -781,7 +782,7 @@ mod tests {
     fn preferred_agent_boost_applied() {
         let (db, tree) = setup();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         let task = simple_task();
@@ -810,7 +811,7 @@ mod tests {
     fn decision_logged_to_db() {
         let (db, tree) = setup();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         let task = simple_task();
@@ -839,7 +840,7 @@ mod tests {
     fn running_tasks_incremented_on_assign() {
         let (db, tree) = setup();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         let task = simple_task();
@@ -901,7 +902,7 @@ mod tests {
     fn no_compatible_agents_rejects() {
         let (db, tree) = setup();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         // Research task in Go - no agent supports both
@@ -968,9 +969,10 @@ mod tests {
     fn it_01_happy_path_route_assign() {
         let db = Database::open_in_memory().unwrap();
         db.migrate().unwrap();
+        let db = Arc::new(db);
         let tree = bootstrap_tree();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         let task = TaskInput {
@@ -1087,9 +1089,10 @@ mod tests {
     fn it_02_fallback_on_scope_conflict() {
         let db = Database::open_in_memory().unwrap();
         db.migrate().unwrap();
+        let db = Arc::new(db);
         let tree = bootstrap_tree();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         // Task that touches src/main.py
@@ -1178,9 +1181,10 @@ mod tests {
     fn it_03_all_rejected() {
         let db = Database::open_in_memory().unwrap();
         db.migrate().unwrap();
+        let db = Arc::new(db);
         let tree = bootstrap_tree();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         let task = TaskInput {
@@ -1267,9 +1271,10 @@ mod tests {
     fn it_04_cold_start() {
         let db = Database::open_in_memory().unwrap();
         db.migrate().unwrap();
+        let db = Arc::new(db);
         let tree = bootstrap_tree();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         // Fresh DB, no outcomes recorded — agents have no stats
@@ -1356,7 +1361,7 @@ mod tests {
     fn degraded_mode_round_robin_assigns_without_tree() {
         let (db, _tree) = setup();
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
 
         let task = simple_task();
@@ -1422,7 +1427,8 @@ mod tests {
         for i in 0..6 {
             let db = Database::open_in_memory().unwrap();
             db.migrate().unwrap();
-            let registry = AgentRegistry::new(&db, &agents).unwrap();
+            let db = Arc::new(db);
+            let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
             let result = execute(
                 &format!("rr-{i}"),
@@ -1463,8 +1469,9 @@ mod tests {
 
         let db = Database::open_in_memory().unwrap();
         db.migrate().unwrap();
+        let db = Arc::new(db);
         let agents = test_agents();
-        let registry = AgentRegistry::new(&db, &agents).unwrap();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
         let invariant_cfg = test_invariant_config();
         let max_failures = invariant_cfg.agent_health.max_failures_24h;
 
