@@ -65,6 +65,8 @@ If the decision tree file is missing or invalid, the server starts in **degraded
 │                                                      │
 │  report_outcome → Stats Update → Feedback Store      │
 │  get_agent_status → Registry Query                   │
+│  get_metrics → Decision counters + latency stats     │
+│  get_budget_status → Spend tracking + per-agent cost │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -82,7 +84,7 @@ arbiter/
 │   └── invariants.toml  # Safety rule thresholds
 ├── models/
 │   └── agent_policy_tree.json  # Bootstrap decision tree
-├── scripts/             # Python: tree generation utilities
+├── scripts/             # Python: tree generation and evaluation utilities
 └── orchestrator/        # Python MCP client library
 ```
 
@@ -92,7 +94,7 @@ arbiter/
 
 ## MCP Tool Usage
 
-Arbiter exposes three tools over the MCP protocol:
+Arbiter exposes five tools over the MCP protocol:
 
 ### route_task
 
@@ -192,6 +194,42 @@ Queries agent capabilities, current load, and performance history.
 
 Omit `agent_id` to get status for all agents.
 
+### get_metrics
+
+Returns server-wide metrics: decision counts, fallback/reject rates, and latency statistics.
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "get_metrics",
+    "arguments": {}
+  }
+}
+```
+
+### get_budget_status
+
+Returns budget overview: total spent, budget limit, remaining amount, and per-agent cost breakdown.
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "tools/call",
+  "params": {
+    "name": "get_budget_status",
+    "arguments": {}
+  }
+}
+```
+
 ## Claude Desktop Integration
 
 Add Arbiter to your Claude Desktop MCP configuration (`claude_desktop_config.json`):
@@ -212,7 +250,7 @@ Add Arbiter to your Claude Desktop MCP configuration (`claude_desktop_config.jso
 }
 ```
 
-Once configured, Claude Desktop can call `route_task` to determine which agent should handle a coding task, `report_outcome` to feed back results, and `get_agent_status` to inspect agent health.
+Once configured, Claude Desktop can call `route_task` to determine which agent should handle a coding task, `report_outcome` to feed back results, `get_agent_status` to inspect agent health, `get_metrics` for server-wide decision statistics, and `get_budget_status` for cost tracking.
 
 ## Orchestrator Integration
 

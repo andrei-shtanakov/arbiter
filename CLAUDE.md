@@ -30,6 +30,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 │                                                      │
 │  report_outcome → Stats Update → Feedback Store      │
 │  get_agent_status → Registry Query                   │
+│  get_metrics → Decision counters + latency stats     │
+│  get_budget_status → Spend tracking + per-agent cost │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -46,6 +48,8 @@ arbiter/
 │   └── src/
 │       ├── lib.rs                # Crate root, module declarations
 │       ├── types.rs              # AgentFeatureVector (22-dim), AgentAction, AgentState
+│       ├── error.rs              # ArbiterError type (thiserror)
+│       ├── traits.rs             # Shared traits (PolicyEngine, InvariantChecker)
 │       ├── policy/
 │       │   ├── mod.rs            # Policy module
 │       │   ├── decision_tree.rs  # Native DT inference (sklearn JSON → tree traversal)
@@ -62,11 +66,19 @@ arbiter/
 │       │   ├── mod.rs            # Tools module
 │       │   ├── route_task.rs     # Primary: task → agent decision
 │       │   ├── report_outcome.rs # Feedback: task result → stats update
-│       │   └── agent_status.rs   # Query: agent capabilities + performance
+│       │   ├── agent_status.rs   # Query: agent capabilities + performance
+│       │   ├── get_metrics.rs    # Server metrics: decision counts, latency stats
+│       │   └── get_budget.rs     # Budget status: spend tracking, per-agent costs
 │       ├── features.rs           # Task JSON + agent stats → 22-dim float vector
 │       ├── agents.rs             # Agent registry (TOML config + SQLite stats)
 │       ├── db.rs                 # SQLite schema, migrations, queries
-│       └── config.rs             # TOML config loader (agents.toml, invariants.toml)
+│       ├── config.rs             # TOML config loader (agents.toml, invariants.toml)
+│       ├── metrics.rs            # In-memory metrics collector (counters, latency histograms)
+│       └── watcher.rs            # File watcher for hot-reloading config and tree
+│   └── tests/
+│       ├── integration.rs        # Integration tests
+│       ├── golden_tests.rs       # Golden file protocol tests
+│       └── golden/               # Golden test fixtures (JSONL request/response pairs)
 ├── arbiter-cli/                  # CLI for smoke tests and benchmarks
 ├── config/
 │   ├── agents.toml               # Agent definitions (capabilities, costs, concurrency)
@@ -74,7 +86,8 @@ arbiter/
 ├── models/
 │   └── agent_policy_tree.json    # Bootstrap decision tree (sklearn export)
 ├── scripts/
-│   └── bootstrap_agent_tree.py   # Expert rules → training data → tree → JSON
+│   ├── bootstrap_agent_tree.py   # Expert rules → training data → tree → JSON (supports --from-db)
+│   └── eval_tree.py              # Evaluate tree quality: DT vs round-robin vs always-best
 └── orchestrator/                 # Python MCP client
     ├── arbiter_client.py         # ArbiterClient class (subprocess + JSON-RPC)
     └── tests/
@@ -152,6 +165,10 @@ anyhow = "1"
 5. **Invariant rules return all 10 results always** — even when all pass
 6. **Critical invariant failure → cascade fallback** — try next agent, up to 2 attempts, then reject
 7. **SQLite stores everything** — decisions, outcomes, agent stats. Schema in `arbiter-spec.md` section 3
+8. **Hot reload** — config and tree files are watched via `watcher.rs`; changes apply without restart
+9. **Graceful shutdown** — SIGTERM/SIGINT handlers set a flag; the server drains the current request and exits
+10. **Data retention** — records older than 90 days are purged on startup
+11. **Crash recovery** — orphaned `running_tasks` counters are reset on startup
 
 ---
 
@@ -182,12 +199,17 @@ uv run pytest orchestrator/tests/
 1. **`scripts/bootstrap_agent_tree.py`** — generates bootstrap decision tree from expert rules
    - Dependencies: scikit-learn, numpy
    - Output: `models/agent_policy_tree.json`
+   - Supports `--from-db arbiter.db` to include real outcome data in training
 
-2. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
+2. **`scripts/eval_tree.py`** — evaluates decision tree quality
+   - Compares DT vs round-robin vs always-best strategies
+   - Run: `uv run python scripts/eval_tree.py`
+
+3. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
    - Pure stdlib: asyncio, json, subprocess
    - No external dependencies
 
-3. **`orchestrator/tests/test_arbiter_integration.py`** — end-to-end MCP protocol tests
+4. **`orchestrator/tests/test_arbiter_integration.py`** — end-to-end MCP protocol tests
    - Dependencies: pytest, pytest-asyncio
 
 ### Python Coding Standards
@@ -202,7 +224,7 @@ uv run pytest orchestrator/tests/
 
 ## MCP Protocol Reference
 
-The server implements JSON-RPC 2.0 over stdio. Three tools are exposed:
+The server implements JSON-RPC 2.0 over stdio. Five tools are exposed:
 
 ### route_task
 Primary tool. Takes a task description, returns agent assignment with confidence, decision path, and invariant check results.
@@ -213,7 +235,15 @@ Feedback loop. Takes task execution results, updates agent stats, returns update
 ### get_agent_status
 Query tool. Returns agent capabilities, current load, and performance history.
 
-See `arbiter-spec.md` sections 4.2–4.4 for full input/output schemas.
+### get_metrics
+Observability tool. Returns decision counters, fallback/reject rates, and latency statistics (mean, p50, p99).
+
+### get_budget_status
+Cost tracking tool. Returns total spend, budget limit, remaining amount, and per-agent cost breakdown.
+
+The server also handles the `ping` method (returns empty object) and `notifications/initialized`.
+
+See `arbiter-spec.md` sections 4.2-4.4 for full input/output schemas.
 
 ---
 
@@ -221,8 +251,9 @@ See `arbiter-spec.md` sections 4.2–4.4 for full input/output schemas.
 
 | Layer | Tool | Location | Count |
 |---|---|---|---|
-| Unit (Rust) | `cargo test` | `arbiter-core/src/`, `arbiter-mcp/src/` | 22 tests |
-| Integration (Rust) | `cargo test --test integration` | `arbiter-mcp/tests/` | 7 tests |
+| Unit (Rust) | `cargo test` | `arbiter-core/src/`, `arbiter-mcp/src/` | ~270 tests |
+| Integration (Rust) | `cargo test --test integration` | `arbiter-mcp/tests/integration.rs` | 12 tests |
+| Golden (Rust) | `cargo test --test golden_tests` | `arbiter-mcp/tests/golden_tests.rs` | 12 fixtures |
 | MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 7 tests |
 | Benchmarks (Rust) | `cargo run --bin arbiter-cli` | `arbiter-cli/src/` | 5 benchmarks |
 
@@ -258,7 +289,8 @@ See `arbiter-spec.md` sections 4.2–4.4 for full input/output schemas.
 
 1. Ensure outcomes are logged in `arbiter.db`
 2. Run: `uv run python scripts/bootstrap_agent_tree.py --from-db arbiter.db --output models/agent_policy_tree.json`
-3. Restart arbiter (or send SIGHUP when hot-reload is implemented)
+3. The tree file is hot-reloaded automatically (no restart needed)
+4. Evaluate tree quality: `uv run python scripts/eval_tree.py`
 
 ### Debug a routing decision
 
