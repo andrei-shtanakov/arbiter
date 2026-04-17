@@ -35,13 +35,13 @@
   - Trigger: `push` на master/main (не PR — экономим storage), после green rust+python
   - Для Maestro: распаковка в cwd совместима с их `ArbiterClientConfig` defaults (`target/release/arbiter-mcp` → в tarball лежит по пути `./arbiter-mcp`, Maestro может либо указать `binary_path` явно, либо мы можем добавить symlink-step если понадобится)
 
-### R-13: Нормализация guardrails с ATP (effort M) — приоритет #1
+### R-13: Нормализация guardrails с ATP (effort M) — ✅ закрыт анализом
 
-- [ ] **Анализ overlap между invariants**
-  - arbiter: 10 invariants в `arbiter-core/src/invariant/`
-  - ATP: 3 правила в `../atp-platform/atp/evaluators/guardrails.py` ("inspired by arbiter")
-  - Задокументировать семантический маппинг: какие правила одинаковые, какие расходятся
-  - Решить: извлечь shared-типы (Rust JSON Schema → ATP Python) или выровнять naming
+- [x] **Анализ overlap между invariants** → `docs/guardrails-atp-mapping.md`
+  - Ключевой вывод: системы работают в **непересекающихся фазах** (arbiter = pre-dispatch, ATP = pre-evaluation). "Inspired by arbiter" — про паттерн, не про правила.
+  - Маппинг: 0 правил идентичных, 2 пары с **инверсной** семантикой (`sla_feasible`↔`timeout_not_exceeded`, `budget_remaining`↔`within_budget`), 8 arbiter-only, 1 ATP-only.
+  - Рекомендация: **не** извлекать shared-типы (overkill для 15 строк структур на двух языках с разным циклом релизов). Выровнять только описания/докстринги, не имена.
+  - Follow-ups (вне arbiter-репы): (a) обновить докстринг `atp/evaluators/guardrails.py` чтобы подчеркнуть post-hoc фазу; (b) добавить ссылку на mapping в `_cowork_output/contracts/contract-analysis.md`. Оба — отдельные мелкие PR в ATP и заметки в shared output.
 
 ---
 
