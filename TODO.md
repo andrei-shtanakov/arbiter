@@ -31,7 +31,7 @@
   - Job `release-binary` в `ci.yml`: cargo build --release → stage в `dist/` (binary + config/*.toml + models/agent_policy_tree.json) → tar.gz → upload через `actions/upload-artifact@v4`
   - Артефакт: `arbiter-mcp-linux-x64.tar.gz` (~2.26MB) + `build-info.txt` (commit/ref/rustc/timestamp)
   - Retention: 30 дней
-  - Platform: linux-x64 (macOS/windows — по запросу от Maestro)
+  - Platform: linux-x64 + macos-arm64 (extended по запросу user'а); windows/macos-x64 — при необходимости
   - Trigger: `push` на master/main (не PR — экономим storage), после green rust+python
   - Для Maestro: распаковка в cwd совместима с их `ArbiterClientConfig` defaults (`target/release/arbiter-mcp` → в tarball лежит по пути `./arbiter-mcp`, Maestro может либо указать `binary_path` явно, либо мы можем добавить symlink-step если понадобится)
 
