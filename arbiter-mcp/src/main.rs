@@ -310,6 +310,6 @@ fn main() {
 mod tests {
     #[test]
     fn arbiter_mcp_compiles() {
-        assert!(true);
+        let _ = env!("CARGO_PKG_NAME");
     }
 }

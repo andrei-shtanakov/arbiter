@@ -963,7 +963,7 @@ fn it_07_concurrent_routing_3x() {
     // Verify total running tasks is correct (sum of assigned)
     let total_running = db.get_total_running_tasks().unwrap();
     assert!(
-        total_running >= 1 && total_running <= 3,
+        (1..=3).contains(&total_running),
         "total running tasks should be 1-3, got {}",
         total_running
     );
@@ -1388,9 +1388,9 @@ fn feature_vector_and_dt_determinism() {
     assert_ne!(vectors[1], vectors[2], "codex vs aider should differ");
 
     // Task features (indices 0-8) should be identical across agents
-    for i in 0..9 {
+    for (i, v1) in vectors[1].iter().enumerate().take(9) {
         assert_eq!(
-            vectors[0][i], vectors[1][i],
+            vectors[0][i], *v1,
             "task feature {i} should be same across agents"
         );
     }

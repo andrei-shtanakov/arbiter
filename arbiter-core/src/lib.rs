@@ -13,8 +13,11 @@ pub use error::{ArbiterError, Result};
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn arbiter_core_compiles() {
-        assert!(true);
+    fn arbiter_core_reexports_error_types() {
+        let _: Result<()> = Ok(());
+        let _ = ArbiterError::InvalidTree("smoke".to_string());
     }
 }
