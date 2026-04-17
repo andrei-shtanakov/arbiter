@@ -19,7 +19,7 @@
 
 ## Активные задачи
 
-### R-10: CI/CD (effort S) — частично закрыт
+### R-10: CI/CD (effort S) — ✅ закрыт
 
 - [x] **GitHub Actions**: `cargo test` + `cargo clippy` + `ruff` (`.github/workflows/ci.yml`, `fe4c033`)
   - Rust matrix: stable, beta — fmt-check + clippy `-D warnings` + `cargo test --all-targets`
@@ -27,13 +27,15 @@
   - Trigger: push/PR на `master`, `main`
   - Дополнительно: попутно вычищены 4 clippy-варнинга в тестовом коде (`cede423`)
   - Примечание: `pyrefly` из пункта плана не добавлен (не сконфигурирован в проекте) — при необходимости вынести в отдельную задачу
-- [ ] **arbiter-mcp binary как CI artifact** — приоритет #1
-  - Требование из Maestro TODO.md (follow-up R-10): Maestro нужен готовый бинарь для R-05 (интеграционные тесты с реальным subprocess) и pending manual acceptance tests (authoritative mode + kill arbiter)
-  - План: добавить job `release-binary` в `ci.yml` — `cargo build --release --bin arbiter-mcp` + упаковать с `config/` (agents.toml + invariants.toml) и `models/agent_policy_tree.json` в `arbiter-mcp-linux-x64.tar.gz`, upload через `actions/upload-artifact@v4`, retention 30 дней
-  - Платформа: только linux-x64 на старте (macOS/windows при запросе от Maestro)
-  - Trigger: только `push` на master/main (не PR — не засорять storage), после прохождения rust+python jobs
+- [x] **arbiter-mcp binary как CI artifact** (`6efe792`, run `24568162844` green)
+  - Job `release-binary` в `ci.yml`: cargo build --release → stage в `dist/` (binary + config/*.toml + models/agent_policy_tree.json) → tar.gz → upload через `actions/upload-artifact@v4`
+  - Артефакт: `arbiter-mcp-linux-x64.tar.gz` (~2.26MB) + `build-info.txt` (commit/ref/rustc/timestamp)
+  - Retention: 30 дней
+  - Platform: linux-x64 (macOS/windows — по запросу от Maestro)
+  - Trigger: `push` на master/main (не PR — экономим storage), после green rust+python
+  - Для Maestro: распаковка в cwd совместима с их `ArbiterClientConfig` defaults (`target/release/arbiter-mcp` → в tarball лежит по пути `./arbiter-mcp`, Maestro может либо указать `binary_path` явно, либо мы можем добавить symlink-step если понадобится)
 
-### R-13: Нормализация guardrails с ATP (effort M) — приоритет #2
+### R-13: Нормализация guardrails с ATP (effort M) — приоритет #1
 
 - [ ] **Анализ overlap между invariants**
   - arbiter: 10 invariants в `arbiter-core/src/invariant/`
