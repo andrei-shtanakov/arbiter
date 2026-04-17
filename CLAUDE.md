@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with the Arbiter project.
 
+## Active Work & Roadmap
+
+- **Current task list:** `./TODO.md` — read it at the start of every session
+- **Ecosystem roadmap (strategic):** `../_cowork_output/roadmap/ecosystem-roadmap.md` — R-01…R-16 across Maestro / arbiter / ATP / spec-runner
+- **Latest weekly status:** `../_cowork_output/status/2026-04-10-status.md`
+- **Sibling projects** (reference only): `../Maestro/`, `../atp-platform/`, `../spec-runner/`, `../proctor-a/`
+
+arbiter's role in the ecosystem: MCP policy engine / router. R1–R4 of own roadmap done; DTO + E2E smoke test for Maestro ready (commit `861534e`). **Maestro R-01..R-03 closed on their side** (release v0.2.0) — integration is technically unblocked and our DTO contract is frozen (Maestro vendored `arbiter_client.py` from `861534e`). Top priority here: finish R-10 by shipping `arbiter-mcp` binary as a CI artifact so Maestro R-05 (real-subprocess integration tests + authoritative-mode manual acceptance) can proceed.
+
 ## Project Overview
 
 **Name:** Arbiter — Coding Agent Policy Engine
