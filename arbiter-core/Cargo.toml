@@ -3,10 +3,17 @@ name = "arbiter-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Shared library for Arbiter: types, DT inference, invariants, metrics"
+description = "Shared library for Arbiter: types, DT inference, invariants, metrics, observability"
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
+chrono = { workspace = true }
+rand = "0.8"
+
+[dev-dependencies]
+jsonschema = { version = "0.18", default-features = false }
+tempfile = "3"

@@ -5,6 +5,7 @@
 
 pub mod error;
 pub mod invariant;
+pub mod obs;
 pub mod policy;
 pub mod traits;
 pub mod types;

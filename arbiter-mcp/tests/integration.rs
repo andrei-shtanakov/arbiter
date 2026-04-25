@@ -1121,6 +1121,12 @@ fn mcp_route_task_e2e() {
             .len()
             == 22
     );
+    assert!(
+        decision["metadata"]["decision_id"].is_i64(),
+        "decision_id must be present as i64 in metadata so callers \
+         can correlate report_outcome to this routing decision; got {:?}",
+        decision["metadata"]["decision_id"]
+    );
 }
 
 /// Verifies end-to-end report + status query through the MCP server dispatch.

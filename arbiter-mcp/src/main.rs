@@ -137,17 +137,37 @@ OPTIONS:
 // Initialization
 // ---------------------------------------------------------------------------
 
-/// Initialize tracing subscriber with stderr output.
+/// Initialize the cross-project observability emitter.
+///
+/// Sets up `arbiter_core::obs` so logs flow as OpenTelemetry Logs Data Model
+/// JSONL into `$ORCHESTRA_LOG_DIR/arbiter-<pid>.jsonl`. Reads `TRACEPARENT`
+/// (W3C Trace Context) from env at startup, so when Maestro spawns arbiter
+/// with `child_env()` the trace is joined automatically.
+///
+/// The CLI `--log-level` is bridged into `ORCHESTRA_LOG_LEVEL` (env has
+/// precedence if already set by the caller).
+///
+/// Stdout stays reserved for the MCP JSON-RPC protocol. If the sink setup
+/// fails (e.g. permissions on the log dir), we fall back to an stderr
+/// `tracing_subscriber::fmt` subscriber so the process remains debuggable.
 fn init_tracing(level: &str) {
-    use tracing_subscriber::EnvFilter;
+    if std::env::var_os("ORCHESTRA_LOG_LEVEL").is_none() {
+        // SAFETY: called at process startup before any threads are spawned.
+        unsafe {
+            std::env::set_var("ORCHESTRA_LOG_LEVEL", level);
+        }
+    }
 
-    let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
-
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .with_target(false)
-        .init();
+    if let Err(e) = arbiter_core::obs::init_logging("arbiter") {
+        eprintln!("WARNING: obs::init_logging failed ({e}); falling back to stderr logs");
+        use tracing_subscriber::EnvFilter;
+        let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_writer(std::io::stderr)
+            .with_target(false)
+            .init();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +181,7 @@ fn main() {
     init_tracing(&args.log_level);
 
     info!(
+        event = "arbiter.starting",
         tree = %args.tree.display(),
         config = %args.config_dir.display(),
         db = %args.db.display(),
@@ -176,13 +197,18 @@ fn main() {
         }
     };
 
-    info!(agents = config.agents.len(), "configuration loaded");
+    info!(
+        event = "arbiter.config_loaded",
+        agents = config.agents.len(),
+        "configuration loaded"
+    );
 
     // Load decision tree (optional — runs in degraded round-robin mode if unavailable)
     let tree = match std::fs::read_to_string(&args.tree) {
         Ok(json) => match DecisionTree::from_json(&json) {
             Ok(t) => {
                 info!(
+                    event = "arbiter.tree_loaded",
                     nodes = t.node_count(),
                     depth = t.depth(),
                     classes = t.n_classes(),
@@ -220,21 +246,29 @@ fn main() {
         eprintln!("failed to migrate database: {e:#}");
         process::exit(1);
     }
-    info!(path = %args.db.display(), "database ready");
+    info!(event = "arbiter.db_ready", path = %args.db.display(), "database ready");
 
     // Wrap in Arc for shared ownership (hot-reload ownership model).
     let database = Arc::new(database);
 
     // Retention: purge records older than 90 days on startup.
     match database.purge_older_than(90) {
-        Ok(n) if n > 0 => info!(deleted = n, "startup retention purge"),
+        Ok(n) if n > 0 => info!(
+            event = "arbiter.retention_purged",
+            deleted = n,
+            "startup retention purge"
+        ),
         Ok(_) => {}
         Err(e) => eprintln!("WARNING: retention purge failed: {e:#}"),
     }
 
     // Crash recovery: reset any orphaned running_tasks counters.
     match database.reset_all_running_tasks() {
-        Ok(n) if n > 0 => info!(agents_reset = n, "startup: reset orphaned running_tasks"),
+        Ok(n) if n > 0 => info!(
+            event = "arbiter.running_tasks_reset",
+            agents_reset = n,
+            "startup: reset orphaned running_tasks"
+        ),
         Ok(_) => {}
         Err(e) => eprintln!("WARNING: running_tasks reset failed: {e:#}"),
     }

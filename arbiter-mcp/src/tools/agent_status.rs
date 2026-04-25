@@ -187,7 +187,11 @@ pub fn execute(
         });
     }
 
-    info!(count = statuses.len(), "get_agent_status returned");
+    info!(
+        event = "status.returned",
+        count = statuses.len(),
+        "get_agent_status returned"
+    );
 
     Ok(StatusResult { agents: statuses })
 }

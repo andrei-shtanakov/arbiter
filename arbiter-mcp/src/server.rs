@@ -218,17 +218,20 @@ impl McpServer {
         let stdout = io::stdout();
         let mut stdout = stdout.lock();
 
-        info!("MCP server ready, reading from stdin");
+        info!(event = "mcp.ready", "MCP server ready, reading from stdin");
 
         for line in stdin.lock().lines() {
             if self.shutdown.load(AtomicOrdering::Relaxed) {
-                info!("shutdown signal received, stopping");
+                info!(
+                    event = "mcp.shutdown_requested",
+                    "shutdown signal received, stopping"
+                );
                 break;
             }
             let line = match line {
                 Ok(l) => l,
                 Err(e) => {
-                    error!("stdin read error: {e}");
+                    error!(event = "mcp.stdin_read_error", error = %e, "stdin read error: {e}");
                     break;
                 }
             };
@@ -239,7 +242,11 @@ impl McpServer {
             }
 
             if line.len() > MAX_LINE_LENGTH {
-                warn!(len = line.len(), "line exceeds maximum length, rejecting");
+                warn!(
+                    event = "mcp.line_too_long",
+                    len = line.len(),
+                    "line exceeds maximum length, rejecting"
+                );
                 let resp = JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: None,
@@ -263,7 +270,7 @@ impl McpServer {
             let request: JsonRpcRequest = match serde_json::from_str(&line) {
                 Ok(r) => r,
                 Err(e) => {
-                    warn!("invalid JSON-RPC: {e}");
+                    warn!(event = "mcp.invalid_jsonrpc", error = %e, "invalid JSON-RPC: {e}");
                     let resp = JsonRpcResponse {
                         jsonrpc: "2.0".to_string(),
                         id: None,
@@ -285,7 +292,7 @@ impl McpServer {
             }
         }
 
-        info!("stdin EOF, shutting down");
+        info!(event = "mcp.stdin_eof", "stdin EOF, shutting down");
         Ok(())
     }
 
@@ -338,7 +345,7 @@ impl McpServer {
                 })
             }
             _ => {
-                warn!("unknown method: {}", req.method);
+                warn!(event = "mcp.unknown_method", method = %req.method, "unknown method: {}", req.method);
                 Some(JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: req.id.clone(),
@@ -355,7 +362,7 @@ impl McpServer {
 
     /// Handle `initialize` — return server capabilities.
     fn handle_initialize(&mut self, req: &JsonRpcRequest) -> JsonRpcResponse {
-        info!("initialize handshake");
+        info!(event = "mcp.initialize", "initialize handshake");
         self.initialized = true;
         JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
@@ -376,7 +383,10 @@ impl McpServer {
 
     /// Handle `initialized` notification — log acknowledgement.
     fn handle_initialized(&mut self) {
-        info!("client acknowledged initialization");
+        info!(
+            event = "mcp.initialized",
+            "client acknowledged initialization"
+        );
     }
 
     /// Handle `tools/list` — return 3 tool schemas.
@@ -504,6 +514,7 @@ impl McpServer {
             if let Some(type_val) = obj.get("type").and_then(|v| v.as_str()) {
                 if !KNOWN_TASK_TYPES.contains(&type_val) {
                     warn!(
+                        event = "route.unknown_task_type",
                         unknown_type = type_val,
                         "unknown task_type, defaulting to 'feature'"
                     );
@@ -517,6 +528,7 @@ impl McpServer {
             if let Some(lang_val) = obj.get("language").and_then(|v| v.as_str()) {
                 if !KNOWN_LANGUAGES.contains(&lang_val) {
                     warn!(
+                        event = "route.unknown_language",
                         unknown_language = lang_val,
                         "unknown language, defaulting to 'other'"
                     );
@@ -595,7 +607,7 @@ impl McpServer {
                 }
             }
             Err(e) => {
-                error!("route_task failed: {e:#}");
+                error!(event = "route.failed", error = ?e, "route_task failed: {e:#}");
                 JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: req.id.clone(),
@@ -688,7 +700,7 @@ impl McpServer {
                 }
             }
             Err(e) => {
-                error!("report_outcome failed: {e:#}");
+                error!(event = "outcome.failed", error = ?e, "report_outcome failed: {e:#}");
                 JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: req.id.clone(),
@@ -732,7 +744,7 @@ impl McpServer {
                 }
             }
             Err(e) => {
-                error!("get_agent_status failed: {e:#}");
+                error!(event = "status.failed", error = ?e, "get_agent_status failed: {e:#}");
                 JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: req.id.clone(),
@@ -781,7 +793,7 @@ impl McpServer {
                 error: None,
             },
             Err(e) => {
-                error!("get_budget_status failed: {e:#}");
+                error!(event = "budget.failed", error = ?e, "get_budget_status failed: {e:#}");
                 JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: req.id.clone(),

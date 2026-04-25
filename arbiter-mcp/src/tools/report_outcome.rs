@@ -116,7 +116,11 @@ pub fn execute(args: &Value, db: &Database, config: &ArbiterConfig) -> Result<Re
             None => ("unknown".to_string(), "unknown".to_string()),
         }
     } else {
-        warn!(task_id = task_id, "No matching decision found for task_id");
+        warn!(
+            event = "outcome.no_matching_decision",
+            task_id = task_id,
+            "No matching decision found for task_id"
+        );
         warnings.push("No matching decision found".to_string());
         ("unknown".to_string(), "unknown".to_string())
     };
@@ -147,6 +151,7 @@ pub fn execute(args: &Value, db: &Database, config: &ArbiterConfig) -> Result<Re
     if decision_id.is_some() {
         if let Err(e) = db.decrement_running_tasks(agent_id) {
             warn!(
+                event = "outcome.decrement_failed",
                 agent_id = agent_id,
                 error = %e,
                 "Failed to decrement running_tasks"
@@ -161,6 +166,7 @@ pub fn execute(args: &Value, db: &Database, config: &ArbiterConfig) -> Result<Re
 
     if retrain_suggested {
         warn!(
+            event = "outcome.retrain_suggested",
             agent_id = agent_id,
             recent_failures = recent_failures,
             threshold = max_failures,
@@ -172,6 +178,7 @@ pub fn execute(args: &Value, db: &Database, config: &ArbiterConfig) -> Result<Re
     let stats = db.get_agent_stats(agent_id)?;
 
     info!(
+        event = "outcome.recorded",
         task_id = task_id,
         agent_id = agent_id,
         status = status,

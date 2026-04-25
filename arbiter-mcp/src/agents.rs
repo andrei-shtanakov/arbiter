@@ -55,7 +55,11 @@ impl AgentRegistry {
             )?;
         }
 
-        info!(count = agents.len(), "agents registered in database");
+        info!(
+            event = "agents.registered",
+            count = agents.len(),
+            "agents registered in database"
+        );
 
         Ok(Self {
             db,

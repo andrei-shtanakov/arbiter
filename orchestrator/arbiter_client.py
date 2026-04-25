@@ -9,11 +9,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from orchestrator._vendor.obs import child_env
 from orchestrator.types import AgentStatusInfo, OutcomeResult, RouteDecision
 
 logger = logging.getLogger(__name__)
@@ -280,6 +282,7 @@ class ArbiterClient:
         try:
             self._process = await asyncio.create_subprocess_exec(
                 *cmd,
+                env={**os.environ, **child_env()},
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

@@ -48,6 +48,10 @@ pub struct RouteResult {
     pub feature_vector: Vec<f64>,
     pub candidates_evaluated: usize,
     pub warnings: Vec<String>,
+    /// SQLite rowid of the inserted decision, surfaced to callers so they
+    /// can correlate this routing decision with a later report_outcome and
+    /// guard against stale retries. None if the SQLite insert failed.
+    pub decision_id: Option<i64>,
 }
 
 /// Convert InvariantConfig to InvariantThresholds for arbiter-core.
@@ -154,7 +158,7 @@ pub fn execute(
 
     if all_failed {
         let inference_us = start.elapsed().as_micros() as i64;
-        let result = RouteResult {
+        let mut result = RouteResult {
             task_id: task_id.to_string(),
             action: AgentAction::Reject,
             chosen_agent: String::new(),
@@ -168,8 +172,9 @@ pub fn execute(
             feature_vector: vec![],
             candidates_evaluated: 0,
             warnings: vec!["All agents exceeded failure threshold".to_string()],
+            decision_id: None,
         };
-        log_decision(db, task_id, task, constraints, &result);
+        result.decision_id = log_decision(db, task_id, task, constraints, &result);
         metrics.record_decision(
             result.inference_us as u64,
             result.action == AgentAction::Fallback,
@@ -214,7 +219,7 @@ pub fn execute(
     // No candidates at all -> reject
     if candidates.is_empty() {
         let inference_us = start.elapsed().as_micros() as i64;
-        let result = RouteResult {
+        let mut result = RouteResult {
             task_id: task_id.to_string(),
             action: AgentAction::Reject,
             chosen_agent: String::new(),
@@ -228,8 +233,9 @@ pub fn execute(
             feature_vector: vec![],
             candidates_evaluated: 0,
             warnings,
+            decision_id: None,
         };
-        log_decision(db, task_id, task, constraints, &result);
+        result.decision_id = log_decision(db, task_id, task, constraints, &result);
         metrics.record_decision(
             result.inference_us as u64,
             result.action == AgentAction::Fallback,
@@ -258,7 +264,10 @@ pub fn execute(
         evaluate_for_agents(dt, &feature_vectors)
     } else {
         // Degraded mode: round-robin when tree unavailable
-        warn!("decision tree unavailable, using round-robin fallback");
+        warn!(
+            event = "route.fallback_round_robin",
+            "decision tree unavailable, using round-robin fallback"
+        );
         warnings.push("Decision tree unavailable, using round-robin fallback".to_string());
         round_robin_ranking(&candidates)
     };
@@ -330,7 +339,7 @@ pub fn execute(
                 }
             );
 
-            let result = RouteResult {
+            let mut result = RouteResult {
                 task_id: task_id.to_string(),
                 action,
                 chosen_agent: agent_id.clone(),
@@ -344,10 +353,11 @@ pub fn execute(
                 feature_vector: feature_vec,
                 candidates_evaluated,
                 warnings,
+                decision_id: None,
             };
 
-            // Step 9: Log decision to SQLite
-            log_decision(db, task_id, task, constraints, &result);
+            // Step 9: Log decision to SQLite (capture rowid for response metadata)
+            result.decision_id = log_decision(db, task_id, task, constraints, &result);
 
             // Step 10: Increment running_tasks
             db.increment_running_tasks(agent_id)
@@ -360,6 +370,7 @@ pub fn execute(
             );
 
             info!(
+                event = "route.decision",
                 task_id = task_id,
                 agent = %agent_id,
                 action = %result.action,
@@ -379,6 +390,7 @@ pub fn execute(
             .collect();
 
         warn!(
+            event = "route.fallback_triggered",
             agent = %agent_id,
             failures = ?failed_rules,
             "critical invariant failure, trying fallback"
@@ -397,7 +409,7 @@ pub fn execute(
 
     // All candidates exhausted or max fallback reached -> reject
     let inference_us = start.elapsed().as_micros() as i64;
-    let result = RouteResult {
+    let mut result = RouteResult {
         task_id: task_id.to_string(),
         action: AgentAction::Reject,
         chosen_agent: String::new(),
@@ -414,9 +426,10 @@ pub fn execute(
         feature_vector: vec![],
         candidates_evaluated,
         warnings,
+        decision_id: None,
     };
 
-    log_decision(db, task_id, task, constraints, &result);
+    result.decision_id = log_decision(db, task_id, task, constraints, &result);
 
     metrics.record_decision(
         result.inference_us as u64,
@@ -425,6 +438,7 @@ pub fn execute(
     );
 
     info!(
+        event = "route.all_rejected",
         task_id = task_id,
         action = "reject",
         candidates = candidates_evaluated,
@@ -475,13 +489,16 @@ fn round_robin_ranking(
 /// Log a routing decision to the SQLite decisions table.
 ///
 /// Logs a warning and continues if the write fails (graceful degradation).
+/// Returns the inserted row's id so callers can surface it in the
+/// route_task response (`metadata.decision_id`). Returns `None` if the
+/// insert failed.
 fn log_decision(
     db: &Database,
     task_id: &str,
     task: &TaskInput,
     constraints: &Constraints,
     result: &RouteResult,
-) {
+) -> Option<i64> {
     let task_json = serde_json::to_string(task).unwrap_or_default();
     let constraints_json = serde_json::to_string(constraints).ok();
     let feature_vector_json = serde_json::to_string(&result.feature_vector).unwrap_or_default();
@@ -510,8 +527,17 @@ fn log_decision(
         inference_us: result.inference_us,
     };
 
-    if let Err(e) = db.insert_decision(&record) {
-        warn!(task_id = task_id, error = %e, "failed to log decision to SQLite");
+    match db.insert_decision(&record) {
+        Ok(rowid) => Some(rowid),
+        Err(e) => {
+            warn!(
+                event = "route.sqlite_log_failed",
+                task_id = task_id,
+                error = %e,
+                "failed to log decision to SQLite"
+            );
+            None
+        }
     }
 }
 
@@ -542,6 +568,7 @@ pub fn result_to_json(result: &RouteResult) -> Value {
         "invariant_checks": invariant_checks,
         "warnings": result.warnings,
         "metadata": {
+            "decision_id": result.decision_id,
             "inference_us": result.inference_us,
             "feature_vector": result.feature_vector,
             "candidates_evaluated": result.candidates_evaluated
@@ -885,6 +912,7 @@ mod tests {
             feature_vector: vec![1.0, 2.0],
             candidates_evaluated: 3,
             warnings: vec!["test warning".to_string()],
+            decision_id: Some(7),
         };
 
         let json = result_to_json(&result);
@@ -893,9 +921,36 @@ mod tests {
         assert_eq!(json["chosen_agent"], "claude_code");
         assert_eq!(json["confidence"], 0.85);
         assert!(json["invariant_checks"].as_array().unwrap().len() == 1);
+        assert_eq!(json["metadata"]["decision_id"], 7);
         assert_eq!(json["metadata"]["inference_us"], 42);
         assert_eq!(json["metadata"]["candidates_evaluated"], 3);
         assert_eq!(json["warnings"][0], "test warning");
+    }
+
+    #[test]
+    fn result_to_json_decision_id_null_when_log_failed() {
+        let result = RouteResult {
+            task_id: "t-null".to_string(),
+            action: AgentAction::Reject,
+            chosen_agent: String::new(),
+            confidence: 0.0,
+            reasoning: "no candidates".to_string(),
+            decision_path: vec![],
+            fallback_agent: None,
+            fallback_reason: None,
+            invariant_checks: vec![],
+            inference_us: 1,
+            feature_vector: vec![],
+            candidates_evaluated: 0,
+            warnings: vec![],
+            decision_id: None,
+        };
+
+        let json = result_to_json(&result);
+        assert!(
+            json["metadata"]["decision_id"].is_null(),
+            "decision_id should serialize as JSON null when None"
+        );
     }
 
     #[test]
@@ -1065,6 +1120,20 @@ mod tests {
         assert_eq!(found.action, "assign");
         assert_eq!(found.invariants_passed, 10);
         assert_eq!(found.invariants_failed, 0);
+
+        // decision_id surfaces the SQLite rowid so callers can correlate
+        // a later report_outcome with this routing decision.
+        let surfaced = result
+            .decision_id
+            .expect("decision_id should be surfaced when log succeeds");
+        let by_lookup = db
+            .find_decision_id_by_task("it-01")
+            .unwrap()
+            .expect("decision_id should be queryable");
+        assert_eq!(
+            surfaced, by_lookup,
+            "result.decision_id must match find_decision_id_by_task"
+        );
 
         // running_tasks incremented
         let running = db.get_running_tasks(&result.chosen_agent).unwrap();
@@ -1556,6 +1625,7 @@ mod tests {
                 "Decision tree unavailable, using round-robin fallback".to_string(),
                 "Unknown task_type 'magic', defaulting to 'feature'".to_string(),
             ],
+            decision_id: None,
         };
 
         let json = result_to_json(&result);

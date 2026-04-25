@@ -7,6 +7,8 @@ requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.4.2",
     "scikit-learn>=1.8.0",
+    "structlog>=25.5.0",
+    "ulid-py>=1.1.0",
 ]
 
 [dependency-groups]
