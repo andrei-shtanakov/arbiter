@@ -1,15 +1,17 @@
-# TODO — arbiter (план от 2026-04-16)
+# TODO — arbiter (план от 2026-04-16, snapshot 2026-04-25)
 
-> Роль в экосистеме: MCP policy engine / router. Сторона arbiter для R-03 **готова** (DTO + E2E smoke в `861534e`) — ждём Maestro.
+> Роль в экосистеме: MCP policy engine / router. Интеграция с Maestro shipped — обе стороны на v0.2.0+
 > Стратегический контекст: `../_cowork_output/roadmap/ecosystem-roadmap.md`
-> Актуальный статус: `../_cowork_output/status/2026-04-10-status.md`
+> Актуальные статусы: `../_cowork_output/status/2026-04-24-status.md`, `2026-04-18-status.md`
 
 ## Текущее состояние
 - ✅ R1–R4 собственного roadmap закрыты (p99 ≤5ms, typed errors, metrics, golden-tests)
 - ✅ Typed DTOs + E2E smoke test для Maestro integration (`861534e`)
-- ✅ MCP API расширен: `route_task`, `report_outcome`, `get_metrics`, `get_budget_status`
+- ✅ MCP API: `route_task`, `report_outcome`, `get_agent_status`, `get_metrics`, `get_budget_status` (5 tools)
 - ✅ **CI** (GitHub Actions: Rust stable/beta + Python ruff/pytest, `fe4c033`)
-- ✅ **Maestro R-01/R-02/R-03 закрыты на их стороне** (release v0.2.0, merged PR #13) — наш DTO-контракт `861534e` вендорнут ими без изменений, интеграция технически разблокирована
+- ✅ **Maestro R-01/R-02/R-03 закрыты на их стороне** (release v0.2.0, merged PR #13) — наш DTO-контракт `861534e` вендорнут ими без изменений
+- ✅ **observability v1 (Rust side)** (commit `d1a8ecd`, 2026-04-25): новый `arbiter-core::obs` модуль — OTel Logs JSONL, structlog/ulid-py для Python orchestrator, 2 contract-теста (`emit_contract`, `fixtures_contract`); structured events в route_task/report_outcome/agent_status
+- ✅ **arbiter#9 fixed** (commit `d1a8ecd`, 2026-04-25): `metadata.decision_id` (i64 SQLite rowid) теперь в response `route_task`. Maestro парная коммит `e5915f2`. **Разблокировало R-05 contract-level** (Maestro `f1f7d26` написал 4 subprocess-теста)
 
 ## Правила ведения
 - После каждой выполненной задачи проставь `[x]` и добавь хеш коммита
@@ -50,9 +52,9 @@
 - [x] **R-01**: rename `codex` → `codex_cli` — сделано Maestro в `8fd0b51`
 - [x] **R-02**: `task_type`/`language`/`complexity` в TaskConfig — сделано Maestro в `8a3cba8`
 - [x] **R-03**: MCP-клиент — сделано Maestro, ветка `feat/r-03-arbiter-client` merged в `166198a`, release v0.2.0 (`e4f0a9f`)
-- [ ] **R-05**: интеграционные тесты с реальным subprocess — заблокировано нашим R-10 artifact-сабтаском (см. выше)
+- [x] **R-05 contract-level** (2026-04-25): Maestro `f1f7d26` написал 4 subprocess-теста (`tests/test_arbiter_real_subprocess.py`); auto-skip без бинарника. **Pending в Maestro:** scheduler-driven e2e + CI-задача с предсобранным arbiter-mcp
 
-**Текущий статус**: интеграция технически разблокирована. Maestro вендорнул `arbiter_client.py` от commit `861534e`, наш DTO-контракт заморожен. Любой bump API = coordinated release.
+**Текущий статус**: интеграция полностью shipped. Maestro вендорнул `arbiter_client.py` от commit `861534e`, наш DTO-контракт заморожен. arbiter#9 закрыт обе стороны (`d1a8ecd` + `e5915f2`). Любой bump API = coordinated release.
 
 ---
 
@@ -60,4 +62,4 @@
 
 - ❌ Shared type library (R-14, XL) — сначала пусть Maestro встанет на наши DTO
 - ❌ Дальнейшее расширение MCP API — зафиксировать то, что уже есть
-- ❌ ECO-3 eval-driven routing (R-07) — зависит от R-06b (ATP SDK в Maestro)
+- 🟡 **R-07 ECO-3 eval-driven routing** — зависит от R-06b (Maestro side). **R-06b в роадмапе переформулирован** (см. `../_cowork_output/decisions/2026-04-25-r06b-design.md`): не «ATP-валидация через SDK», а «agent benchmarking через ATP» (SDK = participant-client, не validator-client)
