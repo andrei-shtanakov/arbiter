@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 - **Sibling projects** (reference only): `../Maestro/`, `../atp-platform/`, `../spec-runner/`, `../proctor-a/`
 - **Active design docs:** `../_cowork_output/decisions/2026-04-25-r06b-design.md` (R-06b reframing — affects R-07)
 
-arbiter's role in the ecosystem: MCP policy engine / router. R1–R4 of own roadmap done; DTO + E2E smoke test for Maestro ready (commit `861534e`). **Maestro R-01..R-03 closed** (v0.2.0) — integration shipped. **R-10 closed** (`fe4c033` + `6efe792`, linux-x64 + macos-arm64 release artifacts). **arbiter#9 fixed** (`d1a8ecd`, 2026-04-25) — `metadata.decision_id` surfaced in `route_task` response, paired with Maestro `e5915f2`/`f1f7d26`. **observability v1 (Rust)** shipped (`d1a8ecd`) — `arbiter-core::obs` + structured events.
+arbiter's role in the ecosystem: MCP policy engine / router. R1–R4 of own roadmap done; DTO + E2E smoke test for Maestro ready (commit `861534e`). **Maestro R-01..R-03 closed** (v0.2.0) — integration shipped. **R-10 closed** (`fe4c033` + `6efe792`, linux-x64 + macos-arm64 release artifacts). **arbiter#9 fixed** (`d1a8ecd`, 2026-04-25) — `metadata.decision_id` surfaced in `route_task` response, paired with Maestro `e5915f2`/`f1f7d26`. **observability v1 (Rust)** shipped (`d1a8ecd`) — `arbiter-core::obs` + structured events. **R-06b M4 closed** (2026-05-23, PRs #11/#13/#14/#15) — 6th MCP tool `report_benchmark` + `benchmark_runs` table + `protocolVersion` 1.1.0 + workspace v0.2.0.
 
 ## Project Overview
 
@@ -42,6 +42,7 @@ arbiter's role in the ecosystem: MCP policy engine / router. R1–R4 of own road
 │  get_agent_status → Registry Query                   │
 │  get_metrics → Decision counters + latency stats     │
 │  get_budget_status → Spend tracking + per-agent cost │
+│  report_benchmark → Benchmark Store (R-06b M4)       │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -74,11 +75,12 @@ arbiter/
 │       ├── server.rs             # JSON-RPC 2.0 dispatch (initialize, tools/list, tools/call)
 │       ├── tools/
 │       │   ├── mod.rs            # Tools module
-│       │   ├── route_task.rs     # Primary: task → agent decision
-│       │   ├── report_outcome.rs # Feedback: task result → stats update
-│       │   ├── agent_status.rs   # Query: agent capabilities + performance
-│       │   ├── get_metrics.rs    # Server metrics: decision counts, latency stats
-│       │   └── get_budget.rs     # Budget status: spend tracking, per-agent costs
+│       │   ├── route_task.rs       # Primary: task → agent decision
+│       │   ├── report_outcome.rs   # Feedback: task result → stats update
+│       │   ├── report_benchmark.rs # R-06b M4: ATP benchmark scores → benchmark_runs
+│       │   ├── agent_status.rs     # Query: agent capabilities + performance
+│       │   ├── get_metrics.rs      # Server metrics: decision counts, latency stats
+│       │   └── get_budget.rs       # Budget status: spend tracking, per-agent costs
 │       ├── features.rs           # Task JSON + agent stats → 22-dim float vector
 │       ├── agents.rs             # Agent registry (TOML config + SQLite stats)
 │       ├── db.rs                 # SQLite schema, migrations, queries
@@ -174,7 +176,7 @@ anyhow = "1"
 4. **Feature vector is 22 floats** — see `arbiter-spec.md` section 4.5 for exact encoding
 5. **Invariant rules return all 10 results always** — even when all pass
 6. **Critical invariant failure → cascade fallback** — try next agent, up to 2 attempts, then reject
-7. **SQLite stores everything** — decisions, outcomes, agent stats. Schema in `arbiter-spec.md` section 3
+7. **SQLite stores everything** — decisions, outcomes, agent stats, and benchmark runs (`benchmark_runs` table, R-06b M4). Schema in `arbiter-spec.md` section 3
 8. **Hot reload** — config and tree files are watched via `watcher.rs`; changes apply without restart
 9. **Graceful shutdown** — SIGTERM/SIGINT handlers set a flag; the server drains the current request and exits
 10. **Data retention** — records older than 90 days are purged on startup
@@ -234,7 +236,7 @@ uv run pytest orchestrator/tests/
 
 ## MCP Protocol Reference
 
-The server implements JSON-RPC 2.0 over stdio. Five tools are exposed:
+The server implements JSON-RPC 2.0 over stdio. Six tools are exposed (`protocolVersion` `"1.1.0"` since v0.2.0):
 
 ### route_task
 Primary tool. Takes a task description, returns agent assignment with confidence, decision path, and invariant check results.
@@ -251,9 +253,12 @@ Observability tool. Returns decision counters, fallback/reject rates, and latenc
 ### get_budget_status
 Cost tracking tool. Returns total spend, budget limit, remaining amount, and per-agent cost breakdown.
 
+### report_benchmark
+Benchmark ingestion tool (R-06b M4, since v0.2.0). Persists per-agent per-benchmark scores from Maestro's ATP runs into `benchmark_runs` table. Idempotent via `run_id` PRIMARY KEY — returns `{status: "created" | "duplicate"}`. Validation errors → `-32602`; DB I/O errors → `-32000`.
+
 The server also handles the `ping` method (returns empty object) and `notifications/initialized`.
 
-See `arbiter-spec.md` sections 4.2-4.4 for full input/output schemas.
+See `arbiter-spec.md` sections 4.2-4.4 and 4.9 (`report_benchmark`) for full input/output schemas.
 
 ---
 

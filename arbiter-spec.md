@@ -19,7 +19,7 @@ Aider) should handle the task, with what parameters, and why.
 ### 1.2 What is included in the MVP
 
 - MCP server with stdio transport (JSON-RPC 2.0)
-- 2 required tools: `route_task`, `report_outcome`
+- 3 required tools: `route_task`, `report_outcome`, `report_benchmark`
 - 1 informational tool: `get_agent_status`
 - Decision Tree inference (reused from `arbiter-core`)
 - 10 invariant rules with cascade fallback
@@ -118,6 +118,7 @@ arbiter/                             # Repository root
 │       │   ├── mod.rs
 │       │   ├── route_task.rs
 │       │   ├── report_outcome.rs
+│       │   ├── report_benchmark.rs    # R-06b M4
 │       │   └── agent_status.rs
 │       ├── features.rs              # Task JSON → FeatureVector
 │       ├── agents.rs                # Agent registry + stats (backed by SQLite)
@@ -241,6 +242,27 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_task ON outcomes(task_id);
 CREATE INDEX IF NOT EXISTS idx_outcomes_agent ON outcomes(agent_id);
 CREATE INDEX IF NOT EXISTS idx_outcomes_status ON outcomes(status);
 CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
+
+-- New in R-06b M4: persisted Maestro benchmark results (see report_benchmark)
+benchmark_runs (
+    run_id                TEXT PRIMARY KEY,    -- caller-supplied, enables CI-retry idempotency
+    payload_version       TEXT NOT NULL,       -- pinned "1.0.0"
+    benchmark_id          TEXT NOT NULL,
+    agent_id              TEXT NOT NULL,
+    ts                    TEXT NOT NULL,       -- RFC3339 UTC
+    score                 REAL NOT NULL,       -- 0.0-1.0 headline
+    score_components      TEXT NOT NULL,       -- JSON dict
+    total_tokens          INTEGER,             -- nullable
+    total_cost_usd        REAL,                -- nullable
+    duration_seconds      REAL NOT NULL,
+    per_task              TEXT NOT NULL,       -- JSON array of WireTaskResult
+    per_task_total_count  INTEGER NOT NULL,
+    per_task_truncated    INTEGER NOT NULL,    -- bool 0/1
+    inserted_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+-- Covering index for the obvious R-07 query
+-- (latest N scores for agent X on benchmark Y).
+CREATE INDEX idx_benchmark_runs_agent_bench_ts ON benchmark_runs(agent_id, benchmark_id, ts DESC);
 ```
 
 ### 3.3 Migrations
@@ -271,22 +293,25 @@ a single migration (v1 — creation of all tables).
 |---|---|---|
 | `initialize` | client → server | Handshake, exchange capabilities |
 | `initialized` | client → server | Notification: handshake complete |
-| `tools/list` | client → server | Return list of 3 tools with schemas |
+| `tools/list` | client → server | Return list of 6 tools with schemas |
 | `tools/call` | client → server | Execute a tool |
 
 **Server capabilities response:**
 
 ```json
 {
+  "protocolVersion": "1.1.0",
   "capabilities": {
     "tools": {}
   },
   "serverInfo": {
     "name": "arbiter",
-    "version": "0.1.0"
+    "version": "0.2.0"
   }
 }
 ```
+
+Note: `protocolVersion` was updated from `"2024-11-05"` to `"1.1.0"` in R-06b M4 (workspace v0.2.0).
 
 **Acceptance criteria:**
 
@@ -529,6 +554,31 @@ In the MVP: state is managed via the running_tasks count:
 - AC-4.8.3: Unknown fields in TOML → ignored with a warning in stderr
 - AC-4.8.4: Missing required fields → error with a description of which field is missing
 
+### 4.9 Tool: `report_benchmark` (`arbiter-mcp/src/tools/report_benchmark.rs`) — R-06b M4
+
+**Purpose:** persist per-agent per-benchmark scores from Maestro's external benchmark runs (ATP) into the `benchmark_runs` table, for R-07 (eval-driven routing) to consume as a routing-decision input.
+
+**Request schema:** see `arbiter-mcp/tests/contract/report_benchmark-v1.schema.json` (mirror of Maestro's `_cowork_output/benchmark-contract/`). Required: `payload_version="1.0.0"`, `run_id`, `benchmark_id`, `agent_id`, `ts` (RFC3339), `score`, `score_components`, `duration_seconds`, `per_task`, `per_task_total_count`, `per_task_truncated`.
+
+**Response:** `{"status": "created" | "duplicate", "run_id": <id>}`. Duplicate via `INSERT ... ON CONFLICT(run_id) DO NOTHING`.
+
+**Error classification:**
+- `ReportBenchmarkError::Validation` (missing/wrong-type field, bad `payload_version`, empty IDs, non-RFC3339 `ts`) → JSON-RPC `-32602` (INVALID_PARAMS). Maestro classifies as `ArbiterContractError` (hard contract break, no retry).
+- `ReportBenchmarkError::Runtime` (DB I/O, lock, etc.) → JSON-RPC `-32000` (server error). Maestro classifies as `ArbiterUnavailable` (transient, retry-safe).
+
+**Acceptance criteria:**
+
+- AC-4.9.1: Happy path — valid payload with N≥1 per_task entries → `{status: "created"}`, exactly 1 row in `benchmark_runs` with all 14 columns populated, `per_task` stored as JSON-encoded array.
+- AC-4.9.2: Duplicate idempotency — second `report_benchmark` with the same `run_id` → `{status: "duplicate"}`, exactly 1 row in `benchmark_runs` (no second insert). Verified for sequential + concurrent (2× `tokio::join!` writers).
+- AC-4.9.3: Missing required field (e.g. `agent_id` absent) → JSON-RPC `-32602` "agent_id required", no insert.
+- AC-4.9.4: Unsupported `payload_version` (e.g. `"2.0.0"` when server pins `"1.0.0"`) → JSON-RPC `-32602` "unsupported payload_version", no insert.
+- AC-4.9.5: Wrong-type field (`score_components` not an object; `per_task` not an array) → JSON-RPC `-32602`, no insert.
+- AC-4.9.6: Empty `run_id` / `benchmark_id` / `agent_id` → JSON-RPC `-32602` "<field> must be non-empty", no insert.
+- AC-4.9.7: Non-RFC3339 `ts` (e.g. `"not-a-date"`) → JSON-RPC `-32602` "ts not RFC3339", no insert.
+- AC-4.9.8: DB lock / I/O error during INSERT → JSON-RPC `-32000` (Runtime), Maestro will retry (transient).
+
+**Tests:** `arbiter-mcp/tests/report_benchmark_test.rs` (16 cases: happy, duplicate, concurrent_duplicate, missing_required, unsupported_payload_version, score_components_non_object_rejected, per_task_non_array_rejected, missing_score_components_rejected, missing_per_task_rejected, empty IDs × 3, bad ts × 2, validation/runtime classification × 2). Contract test in `arbiter-mcp/tests/contract_test.rs` validates request/response shapes against the shared JSONSchema.
+
 ---
 
 ## 5. Error Handling
@@ -555,6 +605,8 @@ In the MVP: state is managed via the running_tasks count:
 | Unknown task_type or language | Defaults are used (task_type=0, language=5="other"), warning in the response |
 | report_outcome for an unknown task_id | The outcome is recorded, decision_id=NULL, warning "No matching decision found" |
 | stdin EOF (Orchestrator shutdown) | The server flushes the SQLite WAL, closes cleanly, exit code 0 |
+| report_benchmark with malformed payload | Validation error returns JSON-RPC -32602 (no insert). Maestro classifies as ArbiterContractError (contract break, no retry). |
+| report_benchmark DB I/O failure | Runtime error returns -32000. Maestro classifies as ArbiterUnavailable (transient, retry-safe). |
 
 ### 5.3 Orchestrator fallback mode
 
@@ -616,12 +668,14 @@ class FallbackScheduler:
 | IT-05 | Stats accumulation | 10x (route_task + report_outcome) | agent_stats correctly accumulated |
 | IT-06 | Agent failure | 6x report_outcome(failure) for same agent in 24h | agent_health invariant fails, agent deprioritized |
 | IT-07 | Concurrent routing | 3x route_task simultaneously (async) | No race conditions, running_tasks consistent |
+| IT-08 | Benchmark create | report_benchmark with new run_id | row inserted, status=created |
+| IT-09 | Benchmark duplicate | report_benchmark x2 same run_id | one row, second returns status=duplicate |
 
 ### 6.3 MCP Protocol Tests (Python, `pytest`)
 
 | ID | Scenario | Description | Expected |
 |---|---|---|---|
-| PT-01 | Handshake | initialize → initialized → tools/list | 3 tools returned with correct schemas |
+| PT-01 | Handshake | initialize → initialized → tools/list | 6 tools returned with correct schemas |
 | PT-02 | Route simple | tools/call route_task with minimal task | Valid response with decision |
 | PT-03 | Route + Report | Full cycle: route → report success | Stats updated, second route reflects history |
 | PT-04 | Invalid params | tools/call with missing required field | JSON-RPC error -32602 |
