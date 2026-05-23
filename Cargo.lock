@@ -54,7 +54,7 @@ checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
 
 [[package]]
 name = "arbiter-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arbiter-core",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "arbiter-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "jsonschema",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "arbiter-mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arbiter-core",

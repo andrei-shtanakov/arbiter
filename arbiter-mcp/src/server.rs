@@ -19,7 +19,7 @@ use crate::agents::AgentRegistry;
 use crate::config::ArbiterConfig;
 use crate::db::Database;
 use crate::metrics::Metrics;
-use crate::tools::{agent_status, report_outcome, route_task};
+use crate::tools::{agent_status, report_benchmark, report_outcome, route_task};
 
 // ---------------------------------------------------------------------------
 // JSON-RPC 2.0 types
@@ -140,6 +140,33 @@ fn tool_schemas() -> Value {
                         "retry_count": { "type": "integer" }
                     },
                     "required": ["task_id", "agent_id", "status"]
+                }
+            },
+            {
+                "name": "report_benchmark",
+                "description": "Persist a BenchmarkResult from Maestro (R-06b M4). Returns status=created|duplicate.",
+                "inputSchema": {
+                    "type": "object",
+                    "required": [
+                        "payload_version", "run_id", "benchmark_id", "agent_id", "ts",
+                        "score", "score_components", "duration_seconds",
+                        "per_task", "per_task_total_count", "per_task_truncated"
+                    ],
+                    "properties": {
+                        "payload_version": { "type": "string", "const": "1.0.0" },
+                        "run_id": { "type": "string" },
+                        "benchmark_id": { "type": "string" },
+                        "agent_id": { "type": "string" },
+                        "ts": { "type": "string" },
+                        "score": { "type": "number" },
+                        "score_components": { "type": "object" },
+                        "total_tokens": { "type": ["integer", "null"] },
+                        "total_cost_usd": { "type": ["number", "null"] },
+                        "duration_seconds": { "type": "number" },
+                        "per_task": { "type": "array" },
+                        "per_task_total_count": { "type": "integer" },
+                        "per_task_truncated": { "type": "boolean" }
+                    }
                 }
             },
             {
@@ -368,7 +395,7 @@ impl McpServer {
             jsonrpc: "2.0".to_string(),
             id: req.id.clone(),
             result: Some(serde_json::json!({
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": "1.1.0",
                 "capabilities": {
                     "tools": {}
                 },
@@ -424,6 +451,10 @@ impl McpServer {
             "route_task" => {
                 let arguments = params.get("arguments");
                 self.handle_route_task(req, arguments)
+            }
+            "report_benchmark" => {
+                let arguments = params.get("arguments");
+                self.handle_report_benchmark(req, arguments)
             }
             "report_outcome" => {
                 let arguments = params.get("arguments");
@@ -715,6 +746,57 @@ impl McpServer {
         }
     }
 
+    /// Handle report_benchmark: validate input, persist benchmark run.
+    fn handle_report_benchmark(
+        &self,
+        req: &JsonRpcRequest,
+        arguments: Option<&Value>,
+    ) -> JsonRpcResponse {
+        debug!("report_benchmark called");
+        let args = match arguments {
+            Some(a) => a,
+            None => {
+                return JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: req.id.clone(),
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: INVALID_PARAMS,
+                        message: "Missing arguments for report_benchmark".to_string(),
+                        data: None,
+                    }),
+                };
+            }
+        };
+
+        match report_benchmark::execute(args, &self.db) {
+            Ok(value) => JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                id: req.id.clone(),
+                result: Some(serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": value.to_string()
+                    }]
+                })),
+                error: None,
+            },
+            Err(e) => {
+                error!(event = "benchmark.failed", error = ?e, "report_benchmark failed: {e:#}");
+                JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: req.id.clone(),
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32000,
+                        message: format!("{e}"),
+                        data: None,
+                    }),
+                }
+            }
+        }
+    }
+
     /// Handle get_agent_status: query agent capabilities, load, and stats.
     fn handle_get_agent_status(
         &self,
@@ -964,7 +1046,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_tools_list_returns_5_tools() {
+    fn handle_tools_list_returns_6_tools() {
         let (db, tree, config) = setup_server();
         let mut server = make_server(db, Some(tree), config);
         let resp = dispatch(
@@ -976,11 +1058,12 @@ mod tests {
         assert!(resp.error.is_none());
         let result = resp.result.unwrap();
         let tools = result["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 5);
+        assert_eq!(tools.len(), 6);
 
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"route_task"));
         assert!(names.contains(&"report_outcome"));
+        assert!(names.contains(&"report_benchmark"));
         assert!(names.contains(&"get_agent_status"));
         assert!(names.contains(&"get_metrics"));
         assert!(names.contains(&"get_budget_status"));
