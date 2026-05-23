@@ -108,6 +108,26 @@ pub struct AgentStats {
     pub total_tokens: i64,
 }
 
+/// Input bundle for `Database::insert_benchmark_run`.
+///
+/// `score_components` and `per_task` are pre-serialized JSON strings.
+#[derive(Debug, Clone)]
+pub struct BenchmarkRunInput<'a> {
+    pub run_id: &'a str,
+    pub payload_version: &'a str,
+    pub benchmark_id: &'a str,
+    pub agent_id: &'a str,
+    pub ts: &'a str,
+    pub score: f64,
+    pub score_components: &'a str,
+    pub total_tokens: Option<i64>,
+    pub total_cost_usd: Option<f64>,
+    pub duration_seconds: f64,
+    pub per_task: &'a str,
+    pub per_task_total_count: i64,
+    pub per_task_truncated: i64,
+}
+
 // ---------------------------------------------------------------------------
 // Database
 // ---------------------------------------------------------------------------
@@ -726,6 +746,66 @@ impl Database {
         Ok(rows)
     }
 
+    // -----------------------------------------------------------------------
+    // Benchmark runs
+    // -----------------------------------------------------------------------
+
+    /// Insert a benchmark run, ignoring duplicates (same `run_id`).
+    ///
+    /// Returns `"created"` when a new row was inserted, `"duplicate"` when
+    /// the `run_id` already existed (ON CONFLICT DO NOTHING).
+    pub fn insert_benchmark_run(
+        &self,
+        input: &BenchmarkRunInput<'_>,
+    ) -> Result<&'static str> {
+        with_retry(|| {
+            let affected = self
+                .conn
+                .execute(
+                    "INSERT INTO benchmark_runs (
+                        run_id, payload_version, benchmark_id, agent_id, ts,
+                        score, score_components, total_tokens, total_cost_usd,
+                        duration_seconds, per_task, per_task_total_count,
+                        per_task_truncated
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                     ON CONFLICT(run_id) DO NOTHING",
+                    params![
+                        input.run_id,
+                        input.payload_version,
+                        input.benchmark_id,
+                        input.agent_id,
+                        input.ts,
+                        input.score,
+                        input.score_components,
+                        input.total_tokens,
+                        input.total_cost_usd,
+                        input.duration_seconds,
+                        input.per_task,
+                        input.per_task_total_count,
+                        input.per_task_truncated,
+                    ],
+                )
+                .context("Failed to insert benchmark_run")?;
+            Ok(if affected == 1 { "created" } else { "duplicate" })
+        })
+    }
+
+    /// Count benchmark_runs rows for a given `run_id`.
+    ///
+    /// Returns 0 or 1 (the primary key constraint guarantees at most one row).
+    /// Used by tests to verify ON CONFLICT idempotency.
+    pub fn count_benchmark_runs(&self, run_id: &str) -> Result<i64> {
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM benchmark_runs WHERE run_id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .context("Failed to count benchmark_runs")?;
+        Ok(count)
+    }
+
     /// Get a reference to the underlying connection (for testing).
     #[cfg(test)]
     #[allow(dead_code)]
@@ -819,6 +899,26 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_agent ON outcomes(agent_id);
 CREATE INDEX IF NOT EXISTS idx_outcomes_status ON outcomes(status);
 CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
 CREATE INDEX IF NOT EXISTS idx_agent_stats_agent_type ON agent_stats(agent_id, task_type);
+
+CREATE TABLE IF NOT EXISTS benchmark_runs (
+    run_id                TEXT PRIMARY KEY,
+    payload_version       TEXT NOT NULL,
+    benchmark_id          TEXT NOT NULL,
+    agent_id              TEXT NOT NULL,
+    ts                    TEXT NOT NULL,
+    score                 REAL NOT NULL,
+    score_components      TEXT NOT NULL,
+    total_tokens          INTEGER,
+    total_cost_usd        REAL,
+    duration_seconds      REAL NOT NULL,
+    per_task              TEXT NOT NULL,
+    per_task_total_count  INTEGER NOT NULL,
+    per_task_truncated    INTEGER NOT NULL,
+    inserted_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_benchmark_runs_agent_bench_ts
+    ON benchmark_runs(agent_id, benchmark_id, ts DESC);
 ";
 
 // ---------------------------------------------------------------------------
@@ -905,7 +1005,8 @@ mod tests {
         assert!(tables.contains(&"agent_stats".to_string()));
         assert!(tables.contains(&"decisions".to_string()));
         assert!(tables.contains(&"outcomes".to_string()));
-        assert_eq!(tables.len(), 5);
+        assert!(tables.contains(&"benchmark_runs".to_string()));
+        assert_eq!(tables.len(), 6);
     }
 
     #[test]
@@ -924,7 +1025,8 @@ mod tests {
             .collect::<std::result::Result<_, _>>()
             .unwrap();
 
-        assert_eq!(indices.len(), 8);
+        assert_eq!(indices.len(), 9);
+        assert!(indices.contains(&"idx_benchmark_runs_agent_bench_ts".to_string()));
         assert!(indices.contains(&"idx_decisions_task".to_string()));
         assert!(indices.contains(&"idx_decisions_agent".to_string()));
         assert!(indices.contains(&"idx_decisions_ts".to_string()));
@@ -946,6 +1048,46 @@ mod tests {
             .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(version, 1);
+    }
+
+    #[test]
+    fn migration_creates_benchmark_runs_table_and_index() {
+        let db = Database::open_in_memory().expect("open db");
+        db.migrate().expect("migrate");
+
+        let table_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='benchmark_runs'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("query table count");
+        assert_eq!(table_count, 1, "benchmark_runs table missing");
+
+        let idx_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_benchmark_runs_agent_bench_ts'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("query idx count");
+        assert_eq!(idx_count, 1, "covering index missing");
+    }
+
+    #[test]
+    fn migration_idempotent_re_run() {
+        let db = Database::open_in_memory().expect("open db");
+        db.migrate().expect("first migrate");
+        db.migrate().expect("second migrate must be idempotent");
+
+        // Table still empty (no data loss):
+        let row_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM benchmark_runs", [], |r| r.get(0))
+            .expect("count rows");
+        assert_eq!(row_count, 0);
     }
 
     #[test]

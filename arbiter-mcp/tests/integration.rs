@@ -1016,14 +1016,138 @@ fn mcp_server_handshake_and_tools_list() {
     assert!(resp.error.is_none());
     let result = resp.result.unwrap();
     let tools = result["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 5, "should have exactly 5 tools");
+    assert_eq!(tools.len(), 6, "should have exactly 6 tools");
 
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"route_task"));
     assert!(names.contains(&"report_outcome"));
+    assert!(names.contains(&"report_benchmark"));
     assert!(names.contains(&"get_agent_status"));
     assert!(names.contains(&"get_metrics"));
     assert!(names.contains(&"get_budget_status"));
+}
+
+// ===========================================================================
+// R-06b M4 Task 1.6: report_benchmark wiring + protocolVersion 1.1.0
+// ===========================================================================
+
+/// Verifies that tools/list includes report_benchmark.
+#[test]
+fn tools_list_includes_report_benchmark() {
+    let db = Database::open_in_memory().unwrap();
+    db.migrate().unwrap();
+    let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
+    let config = test_config();
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &config.agents).unwrap();
+    let metrics = Arc::new(arbiter_mcp::metrics::Metrics::new());
+    let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let tree = Arc::new(RwLock::new(Some(tree)));
+    let config = Arc::new(RwLock::new(config));
+    let registry = Arc::new(RwLock::new(registry));
+    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+
+    let resp = dispatch(
+        &mut server,
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+    )
+    .unwrap();
+    assert!(resp.error.is_none());
+    let result = resp.result.unwrap();
+    let names: Vec<&str> = result["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        names.contains(&"report_benchmark"),
+        "report_benchmark missing from tools/list: {:?}",
+        names
+    );
+}
+
+/// Verifies tools/call dispatches to report_benchmark and returns status=created.
+#[test]
+fn tools_call_report_benchmark_dispatches() {
+    let db = Database::open_in_memory().unwrap();
+    db.migrate().unwrap();
+    let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
+    let config = test_config();
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &config.agents).unwrap();
+    let metrics = Arc::new(arbiter_mcp::metrics::Metrics::new());
+    let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let tree = Arc::new(RwLock::new(Some(tree)));
+    let config = Arc::new(RwLock::new(config));
+    let registry = Arc::new(RwLock::new(registry));
+    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "report_benchmark",
+            "arguments": {
+                "payload_version": "1.0.0",
+                "run_id": "int-1",
+                "benchmark_id": "b",
+                "agent_id": "claude_code",
+                "ts": "2026-05-23T12:00:00Z",
+                "score": 0.5,
+                "score_components": {},
+                "duration_seconds": 1.0,
+                "per_task": [],
+                "per_task_total_count": 0,
+                "per_task_truncated": false
+            }
+        }
+    });
+
+    let resp = dispatch(&mut server, &req.to_string()).unwrap();
+    assert!(
+        resp.error.is_none(),
+        "tools/call returned error: {:?}",
+        resp.error
+    );
+    let result = resp.result.unwrap();
+    let inner_text = result["content"][0]["text"]
+        .as_str()
+        .expect("inner text missing");
+    let inner: serde_json::Value =
+        serde_json::from_str(inner_text).expect("inner text not valid JSON");
+    assert_eq!(inner["status"], "created");
+    assert_eq!(inner["run_id"], "int-1");
+}
+
+/// Verifies that initialize advertises protocolVersion "1.1.0".
+#[test]
+fn initialize_advertises_protocol_version_1_1_0() {
+    let db = Database::open_in_memory().unwrap();
+    db.migrate().unwrap();
+    let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
+    let config = test_config();
+    let db = Arc::new(db);
+    let registry = AgentRegistry::new(Arc::clone(&db), &config.agents).unwrap();
+    let metrics = Arc::new(arbiter_mcp::metrics::Metrics::new());
+    let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let tree = Arc::new(RwLock::new(Some(tree)));
+    let config = Arc::new(RwLock::new(config));
+    let registry = Arc::new(RwLock::new(registry));
+    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+
+    let resp = dispatch(
+        &mut server,
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1.0","capabilities":{}}}"#,
+    )
+    .unwrap();
+    assert!(resp.error.is_none());
+    let result = resp.result.unwrap();
+    let server_version = result["protocolVersion"]
+        .as_str()
+        .expect("protocolVersion missing");
+    assert_eq!(server_version, "1.1.0");
 }
 
 /// Verifies JSON-RPC error codes for protocol violations.
