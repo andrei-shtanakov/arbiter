@@ -181,3 +181,61 @@ fn runtime_error_variant_returns_server_error_code() {
         "Runtime error should map to server error (-32000)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Fix 3+4: validate score_components is object, per_task is array
+// ---------------------------------------------------------------------------
+
+#[test]
+fn score_components_non_object_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-sc-type");
+    payload["score_components"] = json!("not an object");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(
+        matches!(err, ReportBenchmarkError::Validation(_)),
+        "expected Validation error, got {err:?}"
+    );
+    assert!(
+        format!("{err}").contains("score_components"),
+        "error should mention score_components, got: {err}"
+    );
+}
+
+#[test]
+fn per_task_non_array_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-pt-type");
+    payload["per_task"] = json!("not an array");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(
+        matches!(err, ReportBenchmarkError::Validation(_)),
+        "expected Validation error, got {err:?}"
+    );
+    assert!(
+        format!("{err}").contains("per_task"),
+        "error should mention per_task, got: {err}"
+    );
+}
+
+#[test]
+fn missing_score_components_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-sc-missing");
+    payload.as_object_mut().unwrap().remove("score_components");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+}
+
+#[test]
+fn missing_per_task_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-pt-missing");
+    payload.as_object_mut().unwrap().remove("per_task");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+}

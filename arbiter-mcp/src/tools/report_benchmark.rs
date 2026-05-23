@@ -59,14 +59,28 @@ pub fn execute(args: &Value, db: &Database) -> Result<Value, ReportBenchmarkErro
     let score = args["score"]
         .as_f64()
         .ok_or_else(|| ReportBenchmarkError::Validation("score required".into()))?;
-    let score_components = serde_json::to_string(&args["score_components"])
+    // --- score_components: must be an object ---
+    let score_components_val = &args["score_components"];
+    if !score_components_val.is_object() {
+        return Err(ReportBenchmarkError::Validation(
+            "score_components must be an object".into(),
+        ));
+    }
+    let score_components = serde_json::to_string(score_components_val)
         .map_err(|e| ReportBenchmarkError::Runtime(format!("serialize score_components: {e}")))?;
     let total_tokens = args["total_tokens"].as_i64();
     let total_cost_usd = args["total_cost_usd"].as_f64();
     let duration_seconds = args["duration_seconds"]
         .as_f64()
         .ok_or_else(|| ReportBenchmarkError::Validation("duration_seconds required".into()))?;
-    let per_task = serde_json::to_string(&args["per_task"])
+    // --- per_task: must be an array ---
+    let per_task_val = &args["per_task"];
+    if !per_task_val.is_array() {
+        return Err(ReportBenchmarkError::Validation(
+            "per_task must be an array".into(),
+        ));
+    }
+    let per_task = serde_json::to_string(per_task_val)
         .map_err(|e| ReportBenchmarkError::Runtime(format!("serialize per_task: {e}")))?;
     let per_task_total_count = args["per_task_total_count"]
         .as_i64()
