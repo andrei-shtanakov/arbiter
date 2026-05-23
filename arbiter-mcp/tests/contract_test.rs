@@ -1,9 +1,16 @@
 use serde_json::{Value, json};
 use std::fs;
+use std::path::PathBuf;
+
+fn schema_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("contract")
+        .join("report_benchmark-v1.schema.json")
+}
 
 fn validator() -> jsonschema::Validator {
-    let raw = fs::read_to_string("tests/contract/report_benchmark-v1.schema.json")
-        .expect("read schema file");
+    let raw = fs::read_to_string(schema_path()).expect("read schema file");
     let schema: Value = serde_json::from_str(&raw).expect("parse schema JSON");
     jsonschema::draft202012::options()
         .build(&schema)
