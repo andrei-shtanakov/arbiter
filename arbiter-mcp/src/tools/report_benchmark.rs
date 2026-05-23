@@ -29,6 +29,34 @@ impl ReportBenchmarkError {
     }
 }
 
+/// Require a non-empty string field from args.
+fn require_non_empty<'a>(
+    args: &'a Value,
+    key: &str,
+) -> Result<&'a str, ReportBenchmarkError> {
+    let value = args
+        .get(key)
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ReportBenchmarkError::Validation(format!("{key} required")))?;
+    if value.is_empty() {
+        return Err(ReportBenchmarkError::Validation(format!(
+            "{key} must be non-empty"
+        )));
+    }
+    Ok(value)
+}
+
+/// Require a non-empty string that parses as RFC3339.
+fn require_rfc3339<'a>(
+    args: &'a Value,
+    key: &str,
+) -> Result<&'a str, ReportBenchmarkError> {
+    let value = require_non_empty(args, key)?;
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map_err(|e| ReportBenchmarkError::Validation(format!("{key} not RFC3339: {e}")))?;
+    Ok(value)
+}
+
 /// Execute the report_benchmark logic.
 ///
 /// Validates required fields, checks payload_version, and inserts a row
@@ -44,18 +72,13 @@ pub fn execute(args: &Value, db: &Database) -> Result<Value, ReportBenchmarkErro
         )));
     }
 
-    let run_id = args["run_id"]
-        .as_str()
-        .ok_or_else(|| ReportBenchmarkError::Validation("run_id required".into()))?;
-    let benchmark_id = args["benchmark_id"]
-        .as_str()
-        .ok_or_else(|| ReportBenchmarkError::Validation("benchmark_id required".into()))?;
-    let agent_id = args["agent_id"]
-        .as_str()
-        .ok_or_else(|| ReportBenchmarkError::Validation("agent_id required".into()))?;
-    let ts = args["ts"]
-        .as_str()
-        .ok_or_else(|| ReportBenchmarkError::Validation("ts required".into()))?;
+    // --- required non-empty ID fields ---
+    let run_id = require_non_empty(args, "run_id")?;
+    let benchmark_id = require_non_empty(args, "benchmark_id")?;
+    let agent_id = require_non_empty(args, "agent_id")?;
+
+    // --- ts: RFC3339 ---
+    let ts = require_rfc3339(args, "ts")?;
     let score = args["score"]
         .as_f64()
         .ok_or_else(|| ReportBenchmarkError::Validation("score required".into()))?;

@@ -239,3 +239,68 @@ fn missing_per_task_rejected() {
     let err = report_benchmark::execute(&payload, &db).unwrap_err();
     assert!(matches!(err, ReportBenchmarkError::Validation(_)));
 }
+
+// ---------------------------------------------------------------------------
+// Fix 5: non-empty IDs + RFC3339 ts validation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn empty_run_id_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-empty-rid");
+    payload["run_id"] = json!("");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(
+        matches!(err, ReportBenchmarkError::Validation(_)),
+        "expected Validation error for empty run_id"
+    );
+}
+
+#[test]
+fn empty_benchmark_id_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-empty-bid");
+    payload["benchmark_id"] = json!("");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+}
+
+#[test]
+fn empty_agent_id_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-empty-aid");
+    payload["agent_id"] = json!("");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+}
+
+#[test]
+fn bad_ts_format_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-bad-ts");
+    payload["ts"] = json!("not-a-date");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(
+        matches!(err, ReportBenchmarkError::Validation(_)),
+        "expected Validation error for bad ts format"
+    );
+    assert!(
+        format!("{err}").contains("RFC3339") || format!("{err}").contains("not RFC3339"),
+        "error should mention RFC3339, got: {err}"
+    );
+}
+
+#[test]
+fn good_ts_rfc3339_accepted() {
+    let db = fresh_db();
+    // Valid RFC3339 with timezone offset
+    let mut payload = valid_payload("run-good-ts");
+    payload["ts"] = json!("2026-05-23T12:00:00+00:00");
+
+    let result = report_benchmark::execute(&payload, &db).expect("should succeed");
+    assert_eq!(result["status"], "created");
+}
