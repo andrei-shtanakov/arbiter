@@ -244,7 +244,7 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_status ON outcomes(status);
 CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
 
 -- New in R-06b M4: persisted Maestro benchmark results (see report_benchmark)
-benchmark_runs (
+CREATE TABLE IF NOT EXISTS benchmark_runs (
     run_id                TEXT PRIMARY KEY,    -- caller-supplied, enables CI-retry idempotency
     payload_version       TEXT NOT NULL,       -- pinned "1.0.0"
     benchmark_id          TEXT NOT NULL,
@@ -262,7 +262,7 @@ benchmark_runs (
 );
 -- Covering index for the obvious R-07 query
 -- (latest N scores for agent X on benchmark Y).
-CREATE INDEX idx_benchmark_runs_agent_bench_ts ON benchmark_runs(agent_id, benchmark_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_benchmark_runs_agent_bench_ts ON benchmark_runs(agent_id, benchmark_id, ts DESC);
 ```
 
 ### 3.3 Migrations
@@ -293,7 +293,7 @@ a single migration (v1 — creation of all tables).
 |---|---|---|
 | `initialize` | client → server | Handshake, exchange capabilities |
 | `initialized` | client → server | Notification: handshake complete |
-| `tools/list` | client → server | Return list of 6 tools with schemas |
+| `tools/list` | client → server | Return list of 6 tools with schemas (4 specified in detail below: `route_task` §4.2, `report_outcome` §4.3, `get_agent_status` §4.4, `report_benchmark` §4.9. `get_metrics` and `get_budget_status` are exposed via `tools/list` but not yet specified at AC level — pending separate spec PR.) |
 | `tools/call` | client → server | Execute a tool |
 
 **Server capabilities response:**
@@ -568,7 +568,7 @@ In the MVP: state is managed via the running_tasks count:
 
 **Acceptance criteria:**
 
-- AC-4.9.1: Happy path — valid payload with N≥1 per_task entries → `{status: "created"}`, exactly 1 row in `benchmark_runs` with all 14 columns populated, `per_task` stored as JSON-encoded array.
+- AC-4.9.1: Happy path — valid payload with N≥1 per_task entries → `{status: "created"}`, exactly 1 row in `benchmark_runs` with all required columns populated (`run_id`, `payload_version`, `benchmark_id`, `agent_id`, `ts`, `score`, `score_components`, `duration_seconds`, `per_task`, `per_task_total_count`, `per_task_truncated`); optional columns `total_tokens`/`total_cost_usd` may be NULL when caller omits them from the payload; `inserted_at` is server-defaulted; `per_task` stored as JSON-encoded array.
 - AC-4.9.2: Duplicate idempotency — second `report_benchmark` with the same `run_id` → `{status: "duplicate"}`, exactly 1 row in `benchmark_runs` (no second insert). Verified for sequential + concurrent (2× `tokio::join!` writers).
 - AC-4.9.3: Missing required field (e.g. `agent_id` absent) → JSON-RPC `-32602` "agent_id required", no insert.
 - AC-4.9.4: Unsupported `payload_version` (e.g. `"2.0.0"` when server pins `"1.0.0"`) → JSON-RPC `-32602` "unsupported payload_version", no insert.

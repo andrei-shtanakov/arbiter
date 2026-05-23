@@ -258,7 +258,7 @@ Benchmark ingestion tool (R-06b M4, since v0.2.0). Persists per-agent per-benchm
 
 The server also handles the `ping` method (returns empty object) and `notifications/initialized`.
 
-See `arbiter-spec.md` sections 4.2-4.4 and 4.9 (`report_benchmark`) for full input/output schemas.
+See `arbiter-spec.md` sections 4.2 (`route_task`), 4.3 (`report_outcome`), 4.4 (`get_agent_status`), and 4.9 (`report_benchmark`) for full input/output schemas + AC. `get_metrics` and `get_budget_status` are exposed via `tools/list` but not yet specified at AC level — read `arbiter-mcp/src/tools/get_metrics.rs` / `get_budget.rs` directly until a follow-up spec PR lands.
 
 ---
 
