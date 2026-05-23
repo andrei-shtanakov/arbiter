@@ -1,5 +1,6 @@
 use arbiter_mcp::db::Database;
 use arbiter_mcp::tools::report_benchmark;
+use arbiter_mcp::tools::report_benchmark::ReportBenchmarkError;
 use serde_json::json;
 
 fn valid_payload(run_id: &str) -> serde_json::Value {
@@ -119,10 +120,7 @@ fn missing_required_field_returns_error() {
     let db = fresh_db();
     let mut payload = valid_payload("run-err");
     // Remove a required field
-    payload
-        .as_object_mut()
-        .unwrap()
-        .remove("agent_id");
+    payload.as_object_mut().unwrap().remove("agent_id");
 
     let result = report_benchmark::execute(&payload, &db);
     assert!(result.is_err(), "execute should fail with missing agent_id");
@@ -152,4 +150,34 @@ fn unsupported_payload_version_rejected() {
 
     let count = db.count_benchmark_runs("run-pv").expect("count");
     assert_eq!(count, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Fix 1: validation errors map to -32602, runtime enum maps to -32000
+// ---------------------------------------------------------------------------
+
+#[test]
+fn validation_error_uses_jsonrpc_invalid_params() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-val-code");
+    payload.as_object_mut().unwrap().remove("run_id");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert_eq!(
+        err.jsonrpc_code(),
+        -32602,
+        "missing field should map to INVALID_PARAMS (-32602)"
+    );
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+}
+
+#[test]
+fn runtime_error_variant_returns_server_error_code() {
+    // Test the enum directly — proves the dispatch logic is correct.
+    let err = ReportBenchmarkError::Runtime("simulated db failure".into());
+    assert_eq!(
+        err.jsonrpc_code(),
+        -32000,
+        "Runtime error should map to server error (-32000)"
+    );
 }
