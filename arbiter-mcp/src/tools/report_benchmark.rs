@@ -1,6 +1,6 @@
 //! report_benchmark MCP tool — R-06b M4.
 
-use crate::db::Database;
+use crate::db::{BenchmarkRunInput, Database};
 use anyhow::{bail, Result};
 use serde_json::Value;
 
@@ -46,21 +46,22 @@ pub fn execute(args: &Value, db: &Database) -> Result<Value> {
         .as_bool()
         .ok_or_else(|| anyhow::anyhow!("per_task_truncated required"))? as i64;
 
-    let status = db.insert_benchmark_run(
+    let input = BenchmarkRunInput {
         run_id,
         payload_version,
         benchmark_id,
         agent_id,
         ts,
         score,
-        &score_components,
+        score_components: &score_components,
         total_tokens,
         total_cost_usd,
         duration_seconds,
-        &per_task,
+        per_task: &per_task,
         per_task_total_count,
         per_task_truncated,
-    )?;
+    };
+    let status = db.insert_benchmark_run(&input)?;
 
     Ok(serde_json::json!({"status": status, "run_id": run_id}))
 }

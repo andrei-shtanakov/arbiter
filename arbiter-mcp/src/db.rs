@@ -108,6 +108,26 @@ pub struct AgentStats {
     pub total_tokens: i64,
 }
 
+/// Input bundle for `Database::insert_benchmark_run`.
+///
+/// `score_components` and `per_task` are pre-serialized JSON strings.
+#[derive(Debug, Clone)]
+pub struct BenchmarkRunInput<'a> {
+    pub run_id: &'a str,
+    pub payload_version: &'a str,
+    pub benchmark_id: &'a str,
+    pub agent_id: &'a str,
+    pub ts: &'a str,
+    pub score: f64,
+    pub score_components: &'a str,
+    pub total_tokens: Option<i64>,
+    pub total_cost_usd: Option<f64>,
+    pub duration_seconds: f64,
+    pub per_task: &'a str,
+    pub per_task_total_count: i64,
+    pub per_task_truncated: i64,
+}
+
 // ---------------------------------------------------------------------------
 // Database
 // ---------------------------------------------------------------------------
@@ -736,19 +756,7 @@ impl Database {
     /// the `run_id` already existed (ON CONFLICT DO NOTHING).
     pub fn insert_benchmark_run(
         &self,
-        run_id: &str,
-        payload_version: &str,
-        benchmark_id: &str,
-        agent_id: &str,
-        ts: &str,
-        score: f64,
-        score_components: &str,
-        total_tokens: Option<i64>,
-        total_cost_usd: Option<f64>,
-        duration_seconds: f64,
-        per_task: &str,
-        per_task_total_count: i64,
-        per_task_truncated: i64,
+        input: &BenchmarkRunInput<'_>,
     ) -> Result<&'static str> {
         with_retry(|| {
             let affected = self
@@ -762,19 +770,19 @@ impl Database {
                      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                      ON CONFLICT(run_id) DO NOTHING",
                     params![
-                        run_id,
-                        payload_version,
-                        benchmark_id,
-                        agent_id,
-                        ts,
-                        score,
-                        score_components,
-                        total_tokens,
-                        total_cost_usd,
-                        duration_seconds,
-                        per_task,
-                        per_task_total_count,
-                        per_task_truncated,
+                        input.run_id,
+                        input.payload_version,
+                        input.benchmark_id,
+                        input.agent_id,
+                        input.ts,
+                        input.score,
+                        input.score_components,
+                        input.total_tokens,
+                        input.total_cost_usd,
+                        input.duration_seconds,
+                        input.per_task,
+                        input.per_task_total_count,
+                        input.per_task_truncated,
                     ],
                 )
                 .context("Failed to insert benchmark_run")?;
