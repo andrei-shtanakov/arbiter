@@ -6,6 +6,7 @@ error handling, crash recovery, and batch operations.
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
@@ -37,7 +38,7 @@ def _skip_if_no_binary() -> None:
 
 
 @pytest_asyncio.fixture
-async def client() -> ArbiterClient:
+async def client() -> AsyncGenerator[ArbiterClient, None]:
     """Create a started ArbiterClient, stop it after the test."""
     _skip_if_no_binary()
     config = ArbiterClientConfig(

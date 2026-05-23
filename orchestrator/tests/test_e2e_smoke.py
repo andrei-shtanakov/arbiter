@@ -6,6 +6,7 @@ real binary, validating typed DTO parsing along the way.
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
@@ -41,7 +42,7 @@ def _find_binary() -> Path:
 
 
 @pytest_asyncio.fixture
-async def client() -> ArbiterClient:
+async def client() -> AsyncGenerator[ArbiterClient, None]:
     """Start an ArbiterClient for each test, stop it afterwards."""
     binary = _find_binary()
     config = ArbiterClientConfig(

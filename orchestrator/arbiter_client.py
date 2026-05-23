@@ -75,7 +75,8 @@ class ArbiterClient:
         self._request_id: int = 0
         self._started: bool = False
         self._db_path: Path | None = None
-        self._temp_db: tempfile.NamedTemporaryFile | None = None
+        # pyrefly: ignore  # TODO: NamedTemporaryFile returns private _TemporaryFileWrapper
+        self._temp_db: tempfile._TemporaryFileWrapper[bytes] | None = None
 
     @property
     def is_running(self) -> bool:
