@@ -113,3 +113,43 @@ fn concurrent_duplicate_run_id_one_created_one_duplicate() {
         .expect("count_benchmark_runs");
     assert_eq!(count, 1, "exactly one row after concurrent inserts");
 }
+
+#[test]
+fn missing_required_field_returns_error() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-err");
+    // Remove a required field
+    payload
+        .as_object_mut()
+        .unwrap()
+        .remove("agent_id");
+
+    let result = report_benchmark::execute(&payload, &db);
+    assert!(result.is_err(), "execute should fail with missing agent_id");
+
+    // Verify no INSERT happened
+    let count = db.count_benchmark_runs("run-err").expect("count");
+    assert_eq!(count, 0, "no row should be inserted on validation failure");
+}
+
+#[test]
+fn unsupported_payload_version_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-pv");
+    payload["payload_version"] = serde_json::json!("2.0.0");
+
+    let result = report_benchmark::execute(&payload, &db);
+    assert!(
+        result.is_err(),
+        "execute should fail on unsupported payload_version"
+    );
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("unsupported payload_version"),
+        "error message should mention 'unsupported payload_version', got: {}",
+        err_msg
+    );
+
+    let count = db.count_benchmark_runs("run-pv").expect("count");
+    assert_eq!(count, 0);
+}
