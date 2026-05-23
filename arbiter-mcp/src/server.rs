@@ -788,7 +788,7 @@ impl McpServer {
                     id: req.id.clone(),
                     result: None,
                     error: Some(JsonRpcError {
-                        code: -32000,
+                        code: INVALID_PARAMS,
                         message: format!("{e}"),
                         data: None,
                     }),
