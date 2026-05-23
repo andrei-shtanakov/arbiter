@@ -82,7 +82,7 @@ async def test_pt01_handshake() -> None:
     c = ArbiterClient(config)
     result = await c.start()
 
-    assert result["protocolVersion"] == "2024-11-05"
+    assert result["protocolVersion"] == "1.1.0"
     assert "capabilities" in result
     assert result["serverInfo"]["name"] == "arbiter"
     assert c.is_running
