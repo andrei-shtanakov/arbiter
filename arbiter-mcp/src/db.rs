@@ -726,6 +726,62 @@ impl Database {
         Ok(rows)
     }
 
+    // -----------------------------------------------------------------------
+    // Benchmark runs
+    // -----------------------------------------------------------------------
+
+    /// Insert a benchmark run, ignoring duplicates (same `run_id`).
+    ///
+    /// Returns `"created"` when a new row was inserted, `"duplicate"` when
+    /// the `run_id` already existed (ON CONFLICT DO NOTHING).
+    pub fn insert_benchmark_run(
+        &self,
+        run_id: &str,
+        payload_version: &str,
+        benchmark_id: &str,
+        agent_id: &str,
+        ts: &str,
+        score: f64,
+        score_components: &str,
+        total_tokens: Option<i64>,
+        total_cost_usd: Option<f64>,
+        duration_seconds: f64,
+        per_task: &str,
+        per_task_total_count: i64,
+        per_task_truncated: i64,
+    ) -> Result<&'static str> {
+        with_retry(|| {
+            let affected = self
+                .conn
+                .execute(
+                    "INSERT INTO benchmark_runs (
+                        run_id, payload_version, benchmark_id, agent_id, ts,
+                        score, score_components, total_tokens, total_cost_usd,
+                        duration_seconds, per_task, per_task_total_count,
+                        per_task_truncated
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                     ON CONFLICT(run_id) DO NOTHING",
+                    params![
+                        run_id,
+                        payload_version,
+                        benchmark_id,
+                        agent_id,
+                        ts,
+                        score,
+                        score_components,
+                        total_tokens,
+                        total_cost_usd,
+                        duration_seconds,
+                        per_task,
+                        per_task_total_count,
+                        per_task_truncated,
+                    ],
+                )
+                .context("Failed to insert benchmark_run")?;
+            Ok(if affected == 1 { "created" } else { "duplicate" })
+        })
+    }
+
     /// Get a reference to the underlying connection (for testing).
     #[cfg(test)]
     #[allow(dead_code)]
