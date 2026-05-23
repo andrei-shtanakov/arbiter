@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [master, main]
+    tags: ['v*']
   pull_request:
     branches: [master, main]
 
@@ -64,6 +65,9 @@ jobs:
       - name: ruff check
         run: uv run ruff check .
 
+      - name: pyrefly check
+        run: uv run pyrefly check
+
       - name: pytest (orchestrator)
         run: uv run python -m pytest orchestrator/tests/ -v
 
@@ -72,6 +76,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     needs: [rust, python]
     if: github.event_name == 'push'
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -123,3 +129,12 @@ jobs:
             arbiter-mcp-${{ matrix.target_name }}.tar.gz
             build-info.txt
           retention-days: 30
+
+      - name: Upload bundle to GitHub Release (tag pushes only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            arbiter-mcp-${{ matrix.target_name }}.tar.gz
+            build-info.txt
+          fail_on_unmatched_files: true
