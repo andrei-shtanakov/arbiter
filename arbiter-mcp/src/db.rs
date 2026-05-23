@@ -819,6 +819,26 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_agent ON outcomes(agent_id);
 CREATE INDEX IF NOT EXISTS idx_outcomes_status ON outcomes(status);
 CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(timestamp);
 CREATE INDEX IF NOT EXISTS idx_agent_stats_agent_type ON agent_stats(agent_id, task_type);
+
+CREATE TABLE IF NOT EXISTS benchmark_runs (
+    run_id                TEXT PRIMARY KEY,
+    payload_version       TEXT NOT NULL,
+    benchmark_id          TEXT NOT NULL,
+    agent_id              TEXT NOT NULL,
+    ts                    TEXT NOT NULL,
+    score                 REAL NOT NULL,
+    score_components      TEXT NOT NULL,
+    total_tokens          INTEGER,
+    total_cost_usd        REAL,
+    duration_seconds      REAL NOT NULL,
+    per_task              TEXT NOT NULL,
+    per_task_total_count  INTEGER NOT NULL,
+    per_task_truncated    INTEGER NOT NULL,
+    inserted_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_benchmark_runs_agent_bench_ts
+    ON benchmark_runs(agent_id, benchmark_id, ts DESC);
 ";
 
 // ---------------------------------------------------------------------------
@@ -905,7 +925,8 @@ mod tests {
         assert!(tables.contains(&"agent_stats".to_string()));
         assert!(tables.contains(&"decisions".to_string()));
         assert!(tables.contains(&"outcomes".to_string()));
-        assert_eq!(tables.len(), 5);
+        assert!(tables.contains(&"benchmark_runs".to_string()));
+        assert_eq!(tables.len(), 6);
     }
 
     #[test]
@@ -924,7 +945,8 @@ mod tests {
             .collect::<std::result::Result<_, _>>()
             .unwrap();
 
-        assert_eq!(indices.len(), 8);
+        assert_eq!(indices.len(), 9);
+        assert!(indices.contains(&"idx_benchmark_runs_agent_bench_ts".to_string()));
         assert!(indices.contains(&"idx_decisions_task".to_string()));
         assert!(indices.contains(&"idx_decisions_agent".to_string()));
         assert!(indices.contains(&"idx_decisions_ts".to_string()));
@@ -946,6 +968,46 @@ mod tests {
             .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
             .unwrap();
         assert_eq!(version, 1);
+    }
+
+    #[test]
+    fn migration_creates_benchmark_runs_table_and_index() {
+        let db = Database::open_in_memory().expect("open db");
+        db.migrate().expect("migrate");
+
+        let table_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='benchmark_runs'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("query table count");
+        assert_eq!(table_count, 1, "benchmark_runs table missing");
+
+        let idx_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_benchmark_runs_agent_bench_ts'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("query idx count");
+        assert_eq!(idx_count, 1, "covering index missing");
+    }
+
+    #[test]
+    fn migration_idempotent_re_run() {
+        let db = Database::open_in_memory().expect("open db");
+        db.migrate().expect("first migrate");
+        db.migrate().expect("second migrate must be idempotent");
+
+        // Table still empty (no data loss):
+        let row_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM benchmark_runs", [], |r| r.get(0))
+            .expect("count rows");
+        assert_eq!(row_count, 0);
     }
 
     #[test]
