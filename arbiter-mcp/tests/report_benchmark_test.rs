@@ -40,3 +40,17 @@ fn happy_path_returns_created() {
     assert_eq!(result["status"], "created");
     assert_eq!(result["run_id"], "run-1");
 }
+
+#[test]
+fn duplicate_run_id_returns_duplicate() {
+    let db = fresh_db();
+    let payload = valid_payload("run-dup");
+
+    let r1 = report_benchmark::execute(&payload, &db).expect("first insert");
+    let r2 = report_benchmark::execute(&payload, &db).expect("second insert");
+
+    assert_eq!(r1["status"], "created");
+    assert_eq!(r2["status"], "duplicate");
+    assert_eq!(r1["run_id"], "run-dup");
+    assert_eq!(r2["run_id"], "run-dup");
+}
