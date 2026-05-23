@@ -7,11 +7,12 @@
 ## Текущее состояние
 - ✅ R1–R4 собственного roadmap закрыты (p99 ≤5ms, typed errors, metrics, golden-tests)
 - ✅ Typed DTOs + E2E smoke test для Maestro integration (`861534e`)
-- ✅ MCP API: `route_task`, `report_outcome`, `get_agent_status`, `get_metrics`, `get_budget_status` (5 tools)
+- ✅ MCP API: `route_task`, `report_outcome`, `get_agent_status`, `get_metrics`, `get_budget_status`, `report_benchmark` (6 tools)
 - ✅ **CI** (GitHub Actions: Rust stable/beta + Python ruff/pytest, `fe4c033`)
 - ✅ **Maestro R-01/R-02/R-03 закрыты на их стороне** (release v0.2.0, merged PR #13) — наш DTO-контракт `861534e` вендорнут ими без изменений
 - ✅ **observability v1 (Rust side)** (commit `d1a8ecd`, 2026-04-25): новый `arbiter-core::obs` модуль — OTel Logs JSONL, structlog/ulid-py для Python orchestrator, 2 contract-теста (`emit_contract`, `fixtures_contract`); structured events в route_task/report_outcome/agent_status
 - ✅ **arbiter#9 fixed** (commit `d1a8ecd`, 2026-04-25): `metadata.decision_id` (i64 SQLite rowid) теперь в response `route_task`. Maestro парная коммит `e5915f2`. **Разблокировало R-05 contract-level** (Maestro `f1f7d26` написал 4 subprocess-теста)
+- ✅ **R-06b M4 closed** (2026-05-23, PRs #11/#13/#14/#15): 6-й MCP-tool `report_benchmark` для приёма BenchmarkResult от Maestro; новая таблица `benchmark_runs` (run_id PK + idx_benchmark_runs_agent_bench_ts) с `INSERT...ON CONFLICT DO NOTHING` идемпотентностью; `protocolVersion` поднят `"2024-11-05"` → `"1.1.0"` (semver-style, pragmatic deviation от canonical MCP date-string per Maestro design §6); workspace v0.2.0; `ReportBenchmarkError` enum разделяет validation (-32602) и runtime (-32000) ошибки; CI получил pyrefly gate + tag-triggered GitHub Release upload (закрыло issue #8 R-10).
 
 ## Правила ведения
 - После каждой выполненной задачи проставь `[x]` и добавь хеш коммита

@@ -67,6 +67,7 @@ If the decision tree file is missing or invalid, the server starts in **degraded
 │  get_agent_status → Registry Query                   │
 │  get_metrics → Decision counters + latency stats     │
 │  get_budget_status → Spend tracking + per-agent cost │
+│  report_benchmark → Benchmark Store (R-06b M4)       │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -94,7 +95,7 @@ arbiter/
 
 ## MCP Tool Usage
 
-Arbiter exposes five tools over the MCP protocol:
+Arbiter exposes six tools over the MCP protocol:
 
 ### route_task
 
@@ -230,6 +231,42 @@ Returns budget overview: total spent, budget limit, remaining amount, and per-ag
 }
 ```
 
+### report_benchmark
+
+**`report_benchmark`** (R-06b M4, since v0.2.0): persists per-agent per-benchmark scores from Maestro's external benchmark runs into the `benchmark_runs` table for use by R-07 (eval-driven routing). Idempotent via `run_id` PRIMARY KEY. See the Maestro-side design doc for the cross-repo contract: https://github.com/andrei-shtanakov/Maestro/blob/master/docs/superpowers/specs/2026-05-23-r06b-m4-arbiter-wiring-design.md
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "report_benchmark",
+    "arguments": {
+      "payload_version": "1.0.0",
+      "run_id": "run-abc123",
+      "benchmark_id": "atp-python-bugfix-v1",
+      "agent_id": "claude_code",
+      "ts": "2026-05-23T10:00:00Z",
+      "score": 0.87,
+      "score_components": {"correctness": 0.9, "speed": 0.8},
+      "duration_seconds": 42.5,
+      "per_task": [],
+      "per_task_total_count": 10,
+      "per_task_truncated": false
+    }
+  }
+}
+```
+
+**Response:** `{"status": "created" | "duplicate", "run_id": "<id>"}`. A duplicate `run_id` returns `status: "duplicate"` without inserting a second row (idempotent).
+
+**Error classification:**
+- Validation errors (bad fields, empty IDs, non-RFC3339 `ts`, unsupported `payload_version`) → JSON-RPC `-32602`
+- DB I/O errors → JSON-RPC `-32000` (transient, Maestro will retry)
+
 ## Claude Desktop Integration
 
 Add Arbiter to your Claude Desktop MCP configuration (`claude_desktop_config.json`):
@@ -250,7 +287,9 @@ Add Arbiter to your Claude Desktop MCP configuration (`claude_desktop_config.jso
 }
 ```
 
-Once configured, Claude Desktop can call `route_task` to determine which agent should handle a coding task, `report_outcome` to feed back results, `get_agent_status` to inspect agent health, `get_metrics` for server-wide decision statistics, and `get_budget_status` for cost tracking.
+Once configured, Claude Desktop can call `route_task` to determine which agent should handle a coding task, `report_outcome` to feed back results, `get_agent_status` to inspect agent health, `get_metrics` for server-wide decision statistics, `get_budget_status` for cost tracking, and `report_benchmark` (R-06b M4, v0.2.0+) to persist benchmark scores from Maestro's ATP runs into the `benchmark_runs` table.
+
+The server negotiates MCP `protocolVersion` `"1.1.0"` (updated from `"2024-11-05"` in v0.2.0).
 
 ## Orchestrator Integration
 
