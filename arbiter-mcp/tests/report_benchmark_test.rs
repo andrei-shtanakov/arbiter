@@ -54,3 +54,62 @@ fn duplicate_run_id_returns_duplicate() {
     assert_eq!(r1["run_id"], "run-dup");
     assert_eq!(r2["run_id"], "run-dup");
 }
+
+/// Two parallel writers with the same run_id must produce exactly one
+/// `"created"` + one `"duplicate"`, and leave exactly one row in
+/// `benchmark_runs`.  Validates ON CONFLICT atomicity under contention
+/// (SQLite is the contract being tested).
+#[test]
+fn concurrent_duplicate_run_id_one_created_one_duplicate() {
+    use std::sync::Arc;
+
+    let dir = tempfile::tempdir().expect("temp dir");
+    let db_path = dir.path().join("bench-concurrent.db");
+
+    // Bootstrap the schema via a dedicated connection, then drop it so
+    // both worker threads start with a clean file lock.
+    {
+        let db = Database::open(&db_path).expect("open bootstrap db");
+        db.migrate().expect("migrate");
+    }
+
+    // Wrap the shared path in an Arc so each thread gets its own clone.
+    let path = Arc::new(db_path);
+
+    let path1 = Arc::clone(&path);
+    let path2 = Arc::clone(&path);
+
+    let payload1 = valid_payload("run-conc");
+    let payload2 = valid_payload("run-conc");
+
+    let t1 = std::thread::spawn(move || {
+        let db = Database::open(&*path1).expect("open in t1");
+        report_benchmark::execute(&payload1, &db).expect("execute t1")
+    });
+    let t2 = std::thread::spawn(move || {
+        let db = Database::open(&*path2).expect("open in t2");
+        report_benchmark::execute(&payload2, &db).expect("execute t2")
+    });
+
+    let r1 = t1.join().expect("t1 panicked");
+    let r2 = t2.join().expect("t2 panicked");
+
+    // Exactly one created and one duplicate — order is non-deterministic.
+    let mut statuses = vec![
+        r1["status"].as_str().expect("status str").to_string(),
+        r2["status"].as_str().expect("status str").to_string(),
+    ];
+    statuses.sort();
+    assert_eq!(
+        statuses,
+        vec!["created", "duplicate"],
+        "expected one created + one duplicate, got: {statuses:?}"
+    );
+
+    // Exactly one row in the table.
+    let db = Database::open(&*path).expect("open verify db");
+    let count = db
+        .count_benchmark_runs("run-conc")
+        .expect("count_benchmark_runs");
+    assert_eq!(count, 1, "exactly one row after concurrent inserts");
+}

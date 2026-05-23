@@ -790,6 +790,22 @@ impl Database {
         })
     }
 
+    /// Count benchmark_runs rows for a given `run_id`.
+    ///
+    /// Returns 0 or 1 (the primary key constraint guarantees at most one row).
+    /// Used by tests to verify ON CONFLICT idempotency.
+    pub fn count_benchmark_runs(&self, run_id: &str) -> Result<i64> {
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM benchmark_runs WHERE run_id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .context("Failed to count benchmark_runs")?;
+        Ok(count)
+    }
+
     /// Get a reference to the underlying connection (for testing).
     #[cfg(test)]
     #[allow(dead_code)]
