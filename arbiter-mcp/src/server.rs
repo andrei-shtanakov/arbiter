@@ -154,17 +154,37 @@ fn tool_schemas() -> Value {
                     ],
                     "properties": {
                         "payload_version": { "type": "string", "const": "1.0.0" },
-                        "run_id": { "type": "string" },
-                        "benchmark_id": { "type": "string" },
-                        "agent_id": { "type": "string" },
-                        "ts": { "type": "string" },
+                        "run_id": { "type": "string", "minLength": 1 },
+                        "benchmark_id": { "type": "string", "minLength": 1 },
+                        "agent_id": { "type": "string", "minLength": 1 },
+                        "ts": { "type": "string", "format": "date-time" },
                         "score": { "type": "number" },
-                        "score_components": { "type": "object" },
-                        "total_tokens": { "type": ["integer", "null"] },
-                        "total_cost_usd": { "type": ["number", "null"] },
-                        "duration_seconds": { "type": "number" },
-                        "per_task": { "type": "array" },
-                        "per_task_total_count": { "type": "integer" },
+                        "score_components": {
+                            "type": "object",
+                            "additionalProperties": { "type": "number" }
+                        },
+                        "total_tokens": { "type": ["integer", "null"], "minimum": 0 },
+                        "total_cost_usd": { "type": ["number", "null"], "minimum": 0 },
+                        "duration_seconds": { "type": "number", "minimum": 0 },
+                        "per_task": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "required": ["task_index", "duration_seconds"],
+                                "properties": {
+                                    "task_index": { "type": "integer", "minimum": 0 },
+                                    "task_type": { "type": ["string", "null"] },
+                                    "score": { "type": ["number", "null"] },
+                                    "tokens_used": { "type": ["integer", "null"], "minimum": 0 },
+                                    "duration_seconds": { "type": "number", "minimum": 0 },
+                                    "error_class": {
+                                        "type": ["string", "null"],
+                                        "enum": ["timeout", "crash", "test_failure", "other", null]
+                                    }
+                                }
+                            }
+                        },
+                        "per_task_total_count": { "type": "integer", "minimum": 0 },
                         "per_task_truncated": { "type": "boolean" }
                     }
                 }
@@ -788,7 +808,7 @@ impl McpServer {
                     id: req.id.clone(),
                     result: None,
                     error: Some(JsonRpcError {
-                        code: INVALID_PARAMS,
+                        code: e.jsonrpc_code(),
                         message: format!("{e}"),
                         data: None,
                     }),

@@ -1,5 +1,6 @@
 use arbiter_mcp::db::Database;
 use arbiter_mcp::tools::report_benchmark;
+use arbiter_mcp::tools::report_benchmark::ReportBenchmarkError;
 use serde_json::json;
 
 fn valid_payload(run_id: &str) -> serde_json::Value {
@@ -119,10 +120,7 @@ fn missing_required_field_returns_error() {
     let db = fresh_db();
     let mut payload = valid_payload("run-err");
     // Remove a required field
-    payload
-        .as_object_mut()
-        .unwrap()
-        .remove("agent_id");
+    payload.as_object_mut().unwrap().remove("agent_id");
 
     let result = report_benchmark::execute(&payload, &db);
     assert!(result.is_err(), "execute should fail with missing agent_id");
@@ -152,4 +150,157 @@ fn unsupported_payload_version_rejected() {
 
     let count = db.count_benchmark_runs("run-pv").expect("count");
     assert_eq!(count, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Fix 1: validation errors map to -32602, runtime enum maps to -32000
+// ---------------------------------------------------------------------------
+
+#[test]
+fn validation_error_uses_jsonrpc_invalid_params() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-val-code");
+    payload.as_object_mut().unwrap().remove("run_id");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert_eq!(
+        err.jsonrpc_code(),
+        -32602,
+        "missing field should map to INVALID_PARAMS (-32602)"
+    );
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+}
+
+#[test]
+fn runtime_error_variant_returns_server_error_code() {
+    // Test the enum directly — proves the dispatch logic is correct.
+    let err = ReportBenchmarkError::Runtime("simulated db failure".into());
+    assert_eq!(
+        err.jsonrpc_code(),
+        -32000,
+        "Runtime error should map to server error (-32000)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Fix 3+4: validate score_components is object, per_task is array
+// ---------------------------------------------------------------------------
+
+#[test]
+fn score_components_non_object_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-sc-type");
+    payload["score_components"] = json!("not an object");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(
+        matches!(err, ReportBenchmarkError::Validation(_)),
+        "expected Validation error, got {err:?}"
+    );
+    assert!(
+        format!("{err}").contains("score_components"),
+        "error should mention score_components, got: {err}"
+    );
+}
+
+#[test]
+fn per_task_non_array_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-pt-type");
+    payload["per_task"] = json!("not an array");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(
+        matches!(err, ReportBenchmarkError::Validation(_)),
+        "expected Validation error, got {err:?}"
+    );
+    assert!(
+        format!("{err}").contains("per_task"),
+        "error should mention per_task, got: {err}"
+    );
+}
+
+#[test]
+fn missing_score_components_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-sc-missing");
+    payload.as_object_mut().unwrap().remove("score_components");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+}
+
+#[test]
+fn missing_per_task_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-pt-missing");
+    payload.as_object_mut().unwrap().remove("per_task");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+}
+
+// ---------------------------------------------------------------------------
+// Fix 5: non-empty IDs + RFC3339 ts validation
+// ---------------------------------------------------------------------------
+
+#[test]
+fn empty_run_id_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-empty-rid");
+    payload["run_id"] = json!("");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(
+        matches!(err, ReportBenchmarkError::Validation(_)),
+        "expected Validation error for empty run_id"
+    );
+}
+
+#[test]
+fn empty_benchmark_id_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-empty-bid");
+    payload["benchmark_id"] = json!("");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+}
+
+#[test]
+fn empty_agent_id_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-empty-aid");
+    payload["agent_id"] = json!("");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+}
+
+#[test]
+fn bad_ts_format_rejected() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-bad-ts");
+    payload["ts"] = json!("not-a-date");
+
+    let err = report_benchmark::execute(&payload, &db).unwrap_err();
+    assert!(
+        matches!(err, ReportBenchmarkError::Validation(_)),
+        "expected Validation error for bad ts format"
+    );
+    assert!(
+        format!("{err}").contains("RFC3339") || format!("{err}").contains("not RFC3339"),
+        "error should mention RFC3339, got: {err}"
+    );
+}
+
+#[test]
+fn good_ts_rfc3339_accepted() {
+    let db = fresh_db();
+    // Valid RFC3339 with timezone offset
+    let mut payload = valid_payload("run-good-ts");
+    payload["ts"] = json!("2026-05-23T12:00:00+00:00");
+
+    let result = report_benchmark::execute(&payload, &db).expect("should succeed");
+    assert_eq!(result["status"], "created");
 }
