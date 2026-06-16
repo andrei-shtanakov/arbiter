@@ -63,4 +63,11 @@
 
 - ❌ Shared type library (R-14, XL) — сначала пусть Maestro встанет на наши DTO
 - ❌ Дальнейшее расширение MCP API — зафиксировать то, что уже есть
-- 🟡 **R-07 ECO-3 eval-driven routing** — зависит от R-06b (Maestro side). **R-06b в роадмапе переформулирован** (см. `../_cowork_output/decisions/2026-04-25-r06b-design.md`): не «ATP-валидация через SDK», а «agent benchmarking через ATP» (SDK = participant-client, не validator-client)
+- 🟢 **R-07 ECO-3 eval-driven routing — Phase 1 в работе** (план от 2026-06-13). Замыкает read-гэп: `benchmark_runs` писалась (`report_benchmark`/M4), но не читалась никем. Тонкий срез = пост-inference re-rank по бенчмарк-скору (зеркало `PREFERRED_AGENT_BOOST`), без ретрейна дерева/смены `n_features`/миграций.
+  - **План (источник истины для кода):** `./2026-06-13-r07-phase1-arbiter-rerank-plan.md` — Tasks 1–4 (TDD, сверены с живым кодом).
+  - **Мотивация + ревью:** `./2026-06-13-r07-thin-slice.md` (детали §3 помечены «↳ SUPERSEDED» → план).
+  - **Фаза 0 (разведка данных):** `../_cowork_output/status/2026-06-13-r07-phase0-data-recon.md` — готовых ATP-данных нет (`.atp-dashboard.db` пуст, agent_id ≠ claude_code/codex_cli/aider, нет покрытия по task_type). **Путь 1 (seed из готовых результатов) мёртв.**
+  - **Источник данных:** atp-platform пишет/гоняет тест-прогон 3 агентов на `code-review` → `report_benchmark` → реальные строки `benchmark_runs` (вход для plan Task 4).
+  - **Декомпозиция:** Tasks 1–3 (scoped `get_benchmark_score` + `apply_benchmark_rerank` + A/B-тест со scoping'ом) — на сид-данных, **не ждут Maestro**. Task 4 (живой A/B + гейт) ждёт данные от atp-platform.
+  - **Гейты:** один бенчмарк доказывает *механизм* (проводка + магнитуда сигнала), НЕ «направление валидировано»; **crossover-gate** (task-dependence, не global bias — ревью R1) отложен до бенчмарка №2 (plan Task 4 Step 4).
+  - **Инварианты ревью, вшитые в план:** R1 task_type-scoped reader · R2 центр на наблюдаемом среднем скоров · R3 метрика в `decision_path`/obs, не в frozen DTO (`861534e`) · R4 audit в `pred.path` (на месте re-rank нет `result`).

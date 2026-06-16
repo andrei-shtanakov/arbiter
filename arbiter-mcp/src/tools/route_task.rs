@@ -16,7 +16,9 @@ use arbiter_core::invariant::rules::{
 };
 use arbiter_core::policy::decision_tree::DecisionTree;
 use arbiter_core::policy::engine::evaluate_for_agents;
-use arbiter_core::types::{AgentAction, AgentState, Constraints, InvariantResult, TaskInput};
+use arbiter_core::types::{
+    AgentAction, AgentState, Constraints, InvariantResult, PredictionResult, TaskInput, TaskType,
+};
 
 /// Round-robin counter for degraded mode agent selection.
 static ROUND_ROBIN_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -31,6 +33,55 @@ const MAX_FALLBACK_ATTEMPTS: usize = 2;
 
 /// Preferred agent confidence boost.
 const PREFERRED_AGENT_BOOST: f64 = 0.1;
+
+/// Static map from routed task type to the benchmark whose scores inform it.
+///
+/// R-07 Phase 1: only `Review` is wired (→ `"code-review"`); other task types
+/// return `None` → no benchmark adjustment. Extend this map (and seed rows) to
+/// add benchmarks — no other code change is required.
+fn benchmark_id_for(task_type: &TaskType) -> Option<&'static str> {
+    match task_type {
+        TaskType::Review => Some("code-review"),
+        _ => None,
+    }
+}
+
+/// Additively adjust each agent's prediction confidence by its benchmark score,
+/// centered on `0.5` so a neutral score changes nothing: `delta = (score - 0.5) *
+/// weight`. Appends a `bench_adjust[...]` audit line to that prediction's `path`
+/// (the chosen agent later copies `path` into `decision_path` — there is no
+/// `RouteResult` in scope at the re-rank site). Re-sorts by adjusted confidence.
+///
+/// No-op when `weight <= 0`, the task type has no mapped benchmark, or the agent
+/// has no score for it (left untouched). Confidence stays clamped to `[0, 1]`.
+fn apply_benchmark_rerank(
+    ranked: &mut [(String, PredictionResult)],
+    task_type: &TaskType,
+    db: &Database,
+    weight: f64,
+) -> Result<()> {
+    if weight <= 0.0 {
+        return Ok(());
+    }
+    let Some(bench) = benchmark_id_for(task_type) else {
+        return Ok(());
+    };
+    for (agent_id, pred) in ranked.iter_mut() {
+        if let Some(score) = db.get_benchmark_score(agent_id, bench)? {
+            let delta = (score - 0.5) * weight;
+            pred.confidence = (pred.confidence + delta).clamp(0.0, 1.0);
+            pred.path.push(format!(
+                "bench_adjust[{agent_id}]: {bench} score={score:.3} delta={delta:+.3}"
+            ));
+        }
+    }
+    ranked.sort_by(|a, b| {
+        b.1.confidence
+            .partial_cmp(&a.1.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(())
+}
 
 /// Result of the route_task operation.
 #[derive(Debug)]
@@ -288,6 +339,14 @@ pub fn execute(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
     }
+
+    // Step 6b: Benchmark re-rank (R-07), opt-in via env flag, off by default
+    // (weight 0.0 => byte-for-byte identical to pre-R-07 behaviour).
+    let bench_weight = std::env::var("ARBITER_BENCH_WEIGHT")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    apply_benchmark_rerank(&mut ranked, &task.task_type, db, bench_weight)?;
 
     // Step 7+8: Run invariant checks with cascade fallback
     let system_ctx = to_system_context(constraints, total_running);
@@ -587,6 +646,94 @@ mod tests {
     use arbiter_core::types::*;
     use std::collections::HashMap;
     use std::sync::Arc;
+
+    /// Seed one benchmark row through the public insert path (NOT a raw INSERT —
+    /// `benchmark_runs` has 6 NOT NULL columns beyond the score).
+    fn seed_bench(db: &Database, run_id: &str, agent: &str, bench: &str, score: f64) {
+        db.insert_benchmark_run(&crate::db::BenchmarkRunInput {
+            run_id,
+            payload_version: "1.0.0",
+            benchmark_id: bench,
+            agent_id: agent,
+            ts: "2026-06-13T00:00:00Z",
+            score,
+            score_components: "{}",
+            total_tokens: None,
+            total_cost_usd: None,
+            duration_seconds: 0.0,
+            per_task: "[]",
+            per_task_total_count: 0,
+            per_task_truncated: 0,
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn benchmark_weight_reranks_review_by_per_agent_score() {
+        // Two agents that both support Review; aider leads on base confidence.
+        // weight=0 leaves the base order; weight=0.15 lets claude_code's higher
+        // code-review score (0.90 vs 0.20) overtake aider.
+        let db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        seed_bench(&db, "a", "claude_code", "code-review", 0.90);
+        seed_bench(&db, "b", "aider", "code-review", 0.20);
+
+        let mk = |conf: f64| PredictionResult {
+            class: 0,
+            confidence: conf,
+            path: vec![],
+        };
+        let base = || {
+            vec![
+                ("aider".to_string(), mk(0.55)),
+                ("claude_code".to_string(), mk(0.50)),
+            ]
+        };
+
+        let mut w0 = base();
+        apply_benchmark_rerank(&mut w0, &TaskType::Review, &db, 0.0).unwrap();
+        assert_eq!(w0[0].0, "aider", "weight 0 leaves base ranking");
+
+        let mut w15 = base();
+        apply_benchmark_rerank(&mut w15, &TaskType::Review, &db, 0.15).unwrap();
+        // claude_code: 0.50 + (0.90-0.5)*0.15 = 0.56 ; aider: 0.55 + (0.20-0.5)*0.15 = 0.505
+        assert_eq!(
+            w15[0].0, "claude_code",
+            "high code-review score promotes claude_code"
+        );
+        assert!(
+            w15[0]
+                .1
+                .path
+                .iter()
+                .any(|s| s.starts_with("bench_adjust[claude_code]")),
+            "audit line lands on the adjusted prediction's path"
+        );
+    }
+
+    #[test]
+    fn benchmark_rerank_is_noop_without_mapping_or_weight() {
+        let db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        seed_bench(&db, "a", "claude_code", "code-review", 0.90);
+
+        let mk = |conf: f64| PredictionResult {
+            class: 0,
+            confidence: conf,
+            path: vec![],
+        };
+        // Docs has no mapped benchmark -> untouched even with weight on.
+        let mut docs = vec![("claude_code".to_string(), mk(0.50))];
+        apply_benchmark_rerank(&mut docs, &TaskType::Docs, &db, 0.15).unwrap();
+        assert_eq!(docs[0].1.confidence, 0.50);
+        assert!(docs[0].1.path.is_empty());
+
+        // Review with weight 0 -> untouched (regression guard for the default).
+        let mut review = vec![("claude_code".to_string(), mk(0.50))];
+        apply_benchmark_rerank(&mut review, &TaskType::Review, &db, 0.0).unwrap();
+        assert_eq!(review[0].1.confidence, 0.50);
+        assert!(review[0].1.path.is_empty());
+    }
 
     fn test_tree_json() -> String {
         serde_json::json!({

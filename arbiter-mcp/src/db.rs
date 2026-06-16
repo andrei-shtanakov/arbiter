@@ -807,6 +807,28 @@ impl Database {
         Ok(count)
     }
 
+    /// Latest benchmark score for an agent on a specific benchmark, clamped to
+    /// `[0, 1]`.
+    ///
+    /// `task_type`-scoped via `benchmark_id` (R-07): a score MUST NOT leak across
+    /// benchmarks, so the caller derives `benchmark_id` from the task type. Returns
+    /// `None` when the agent has no run for that benchmark. Uses
+    /// `idx_benchmark_runs_agent_bench_ts`.
+    pub fn get_benchmark_score(&self, agent_id: &str, benchmark_id: &str) -> Result<Option<f64>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT score FROM benchmark_runs \
+                 WHERE agent_id = ?1 AND benchmark_id = ?2 \
+                 ORDER BY ts DESC LIMIT 1",
+                params![agent_id, benchmark_id],
+                |r| r.get::<_, f64>(0),
+            )
+            .optional()
+            .context("Failed to read benchmark score")?;
+        Ok(row.map(|s| s.clamp(0.0, 1.0)))
+    }
+
     /// Get a reference to the underlying connection (for testing).
     #[cfg(test)]
     #[allow(dead_code)]
@@ -1075,6 +1097,53 @@ mod tests {
             )
             .expect("query idx count");
         assert_eq!(idx_count, 1, "covering index missing");
+    }
+
+    #[test]
+    fn get_benchmark_score_returns_latest_scoped_by_benchmark() {
+        let db = setup_db();
+
+        // All rows for the same agent; only benchmark_id / ts / score vary.
+        let mk = |run_id: &'static str, bench: &'static str, score: f64, ts: &'static str| {
+            BenchmarkRunInput {
+                run_id,
+                payload_version: "1.0.0",
+                benchmark_id: bench,
+                agent_id: "claude_code",
+                ts,
+                score,
+                score_components: "{}",
+                total_tokens: None,
+                total_cost_usd: None,
+                duration_seconds: 0.0,
+                per_task: "[]",
+                per_task_total_count: 0,
+                per_task_truncated: 0,
+            }
+        };
+        db.insert_benchmark_run(&mk("r1", "code-review", 0.40, "2026-06-10T00:00:00Z"))
+            .unwrap();
+        db.insert_benchmark_run(&mk("r2", "code-review", 0.80, "2026-06-13T00:00:00Z"))
+            .unwrap();
+        db.insert_benchmark_run(&mk("r3", "docs", 0.10, "2026-06-13T00:00:00Z"))
+            .unwrap();
+
+        // latest ts wins within a benchmark
+        assert_eq!(
+            db.get_benchmark_score("claude_code", "code-review")
+                .unwrap(),
+            Some(0.80)
+        );
+        // scoping: a different benchmark_id must not leak
+        assert_eq!(
+            db.get_benchmark_score("claude_code", "docs").unwrap(),
+            Some(0.10)
+        );
+        // unknown agent -> None
+        assert_eq!(
+            db.get_benchmark_score("aider", "code-review").unwrap(),
+            None
+        );
     }
 
     #[test]
