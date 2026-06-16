@@ -30,10 +30,7 @@ impl ReportBenchmarkError {
 }
 
 /// Require a non-empty string field from args.
-fn require_non_empty<'a>(
-    args: &'a Value,
-    key: &str,
-) -> Result<&'a str, ReportBenchmarkError> {
+fn require_non_empty<'a>(args: &'a Value, key: &str) -> Result<&'a str, ReportBenchmarkError> {
     let value = args
         .get(key)
         .and_then(|v| v.as_str())
@@ -47,10 +44,7 @@ fn require_non_empty<'a>(
 }
 
 /// Require a non-empty string that parses as RFC3339.
-fn require_rfc3339<'a>(
-    args: &'a Value,
-    key: &str,
-) -> Result<&'a str, ReportBenchmarkError> {
+fn require_rfc3339<'a>(args: &'a Value, key: &str) -> Result<&'a str, ReportBenchmarkError> {
     let value = require_non_empty(args, key)?;
     chrono::DateTime::parse_from_rfc3339(value)
         .map_err(|e| ReportBenchmarkError::Validation(format!("{key} not RFC3339: {e}")))?;
