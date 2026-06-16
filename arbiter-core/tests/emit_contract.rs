@@ -11,11 +11,11 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 fn contract_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("arbiter-core must sit two dirs under the monorepo root")
-        .join("Maestro/_cowork_output/observability-contract")
+    // Vendored from Maestro/_cowork_output/observability-contract/ so arbiter CI
+    // is self-contained (the canonical contract lives in the Maestro repo, which
+    // is absent from arbiter's isolated CI checkout). Keep in sync when the
+    // observability contract changes.
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/contract")
 }
 
 fn load_schema() -> jsonschema::JSONSchema {

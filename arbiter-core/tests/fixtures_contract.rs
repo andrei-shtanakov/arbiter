@@ -8,13 +8,10 @@ use std::fs;
 use std::path::PathBuf;
 
 fn contract_dir() -> PathBuf {
-    // Canonical location: Maestro/_cowork_output/observability-contract/
-    // (same tree as the design doc at Maestro/_cowork_output/decisions/).
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("arbiter-core must sit two dirs under the monorepo root")
-        .join("Maestro/_cowork_output/observability-contract")
+    // Vendored from Maestro/_cowork_output/observability-contract/ (the canonical
+    // location) so arbiter CI is self-contained — the Maestro repo is absent from
+    // arbiter's isolated CI checkout. Keep in sync when the contract changes.
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/contract")
 }
 
 fn load_schema() -> jsonschema::JSONSchema {

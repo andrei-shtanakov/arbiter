@@ -84,11 +84,11 @@ fn concurrent_duplicate_run_id_one_created_one_duplicate() {
     let payload2 = valid_payload("run-conc");
 
     let t1 = std::thread::spawn(move || {
-        let db = Database::open(&*path1).expect("open in t1");
+        let db = Database::open(&path1).expect("open in t1");
         report_benchmark::execute(&payload1, &db).expect("execute t1")
     });
     let t2 = std::thread::spawn(move || {
-        let db = Database::open(&*path2).expect("open in t2");
+        let db = Database::open(&path2).expect("open in t2");
         report_benchmark::execute(&payload2, &db).expect("execute t2")
     });
 
@@ -108,7 +108,7 @@ fn concurrent_duplicate_run_id_one_created_one_duplicate() {
     );
 
     // Exactly one row in the table.
-    let db = Database::open(&*path).expect("open verify db");
+    let db = Database::open(&path).expect("open verify db");
     let count = db
         .count_benchmark_runs("run-conc")
         .expect("count_benchmark_runs");

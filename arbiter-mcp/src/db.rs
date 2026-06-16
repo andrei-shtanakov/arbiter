@@ -754,10 +754,7 @@ impl Database {
     ///
     /// Returns `"created"` when a new row was inserted, `"duplicate"` when
     /// the `run_id` already existed (ON CONFLICT DO NOTHING).
-    pub fn insert_benchmark_run(
-        &self,
-        input: &BenchmarkRunInput<'_>,
-    ) -> Result<&'static str> {
+    pub fn insert_benchmark_run(&self, input: &BenchmarkRunInput<'_>) -> Result<&'static str> {
         with_retry(|| {
             let affected = self
                 .conn
@@ -786,7 +783,11 @@ impl Database {
                     ],
                 )
                 .context("Failed to insert benchmark_run")?;
-            Ok(if affected == 1 { "created" } else { "duplicate" })
+            Ok(if affected == 1 {
+                "created"
+            } else {
+                "duplicate"
+            })
         })
     }
 
