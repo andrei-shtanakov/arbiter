@@ -13,7 +13,7 @@ use arbiter_core::types::*;
 
 use arbiter_mcp::agents::AgentRegistry;
 use arbiter_mcp::config::*;
-use arbiter_mcp::db::{Database, DecisionRecord};
+use arbiter_mcp::db::{BenchmarkRunInput, Database, DecisionRecord};
 use arbiter_mcp::features::{build_feature_vector, AgentInfo, SystemState, FEATURE_DIM};
 use arbiter_mcp::server::McpServer;
 use arbiter_mcp::tools::{report_outcome, route_task};
@@ -190,6 +190,195 @@ fn sample_decision(task_id: &str) -> DecisionRecord {
         invariants_failed: 0,
         inference_us: 42,
     }
+}
+
+// ===========================================================================
+// IT-08: R-07 benchmark re-rank — A/B route shift + Docs scoping
+// ===========================================================================
+
+/// Two agents that BOTH support `review` + `docs` and share `python`, so a
+/// Review (or Docs) task yields exactly these two candidates. The default
+/// `test_agents()` only gives `claude_code` the `review` capability, which would
+/// leave a single candidate and nothing to re-rank.
+fn review_test_agents() -> HashMap<String, AgentConfig> {
+    let mk = |name: &str| AgentConfig {
+        display_name: name.to_string(),
+        supports_languages: vec!["python".to_string()],
+        supports_types: vec!["review".to_string(), "docs".to_string()],
+        max_concurrent: 5,
+        cost_per_hour: 0.20,
+        avg_duration_min: 12.0,
+    };
+    let mut m = HashMap::new();
+    m.insert("claude_code".to_string(), mk("Claude Code"));
+    m.insert("aider".to_string(), mk("Aider"));
+    m
+}
+
+fn task_of_type(task_type: TaskType) -> TaskInput {
+    TaskInput {
+        task_type,
+        language: Language::Python,
+        complexity: Complexity::Simple,
+        priority: Priority::Normal,
+        scope: vec!["src/x.py".to_string()],
+        branch: None,
+        estimated_tokens: Some(20000),
+        has_dependencies: false,
+        requires_internet: false,
+        sla_minutes: Some(60),
+        description: None,
+    }
+}
+
+fn open_constraints() -> Constraints {
+    Constraints {
+        preferred_agent: None,
+        excluded_agents: vec![],
+        budget_remaining_usd: Some(10.0),
+        total_pending_tasks: Some(0),
+        running_tasks: vec![],
+        retry_count: None,
+        calls_per_minute: None,
+    }
+}
+
+fn seed_benchmark(db: &Database, agent: &str, bench: &str, score: f64) {
+    db.insert_benchmark_run(&BenchmarkRunInput {
+        run_id: &format!("{agent}-{bench}"),
+        payload_version: "1.0.0",
+        benchmark_id: bench,
+        agent_id: agent,
+        ts: "2026-06-13T00:00:00Z",
+        score,
+        score_components: "{}",
+        total_tokens: None,
+        total_cost_usd: None,
+        duration_seconds: 0.0,
+        per_task: "[]",
+        per_task_total_count: 0,
+        per_task_truncated: 0,
+    })
+    .unwrap();
+}
+
+fn route_with_weight(
+    db: &Arc<Database>,
+    registry: &AgentRegistry,
+    tree: &DecisionTree,
+    inv: &InvariantConfig,
+    task: &TaskInput,
+    weight: f64,
+) -> route_task::RouteResult {
+    if weight > 0.0 {
+        std::env::set_var("ARBITER_BENCH_WEIGHT", weight.to_string());
+    } else {
+        std::env::remove_var("ARBITER_BENCH_WEIGHT");
+    }
+    let r = route_task::execute(
+        "it-08",
+        task,
+        &open_constraints(),
+        Some(tree),
+        registry,
+        db,
+        inv,
+        &arbiter_mcp::metrics::Metrics::new(),
+    )
+    .unwrap();
+    std::env::remove_var("ARBITER_BENCH_WEIGHT");
+    r
+}
+
+/// IT-08: benchmark scores re-rank the Review route, and scoping holds for Docs.
+///
+/// GIVEN two review-capable agents and a Review task
+/// WHEN baseline routing (weight 0) picks one agent
+/// AND the OTHER agent is seeded to dominate `code-review` with weight 2.0
+/// THEN the chosen agent flips to the high-score agent and `decision_path`
+///   records the `bench_adjust` line.
+/// AND a Docs task (no mapped benchmark) carries NO `bench_adjust` even with the
+///   weight on — the score must not leak across task types (R1 scoping).
+///
+/// The weight is deliberately large (2.0) so the flip is guaranteed regardless of
+/// the tree's base confidences: this test proves the mechanism + scoping, not the
+/// real-world signal magnitude (that is the live A/B in Task 4).
+#[test]
+fn it_08_benchmark_weight_shifts_review_route_and_scopes_docs() {
+    let db = Database::open_in_memory().unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tree = bootstrap_tree();
+    let agents = review_test_agents();
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
+    let inv = test_invariant_config();
+
+    // Baseline: tree decides (weight 0 => byte-for-byte pre-R-07 behaviour).
+    let base = route_with_weight(
+        &db,
+        &registry,
+        &tree,
+        &inv,
+        &task_of_type(TaskType::Review),
+        0.0,
+    );
+    let base_winner = base.chosen_agent.clone();
+    assert!(
+        !base
+            .decision_path
+            .iter()
+            .any(|s| s.contains("bench_adjust")),
+        "weight 0 must not run the benchmark adjustment"
+    );
+    let other = if base_winner == "claude_code" {
+        "aider"
+    } else {
+        "claude_code"
+    };
+
+    // Seed the OTHER agent to dominate code-review; weight 2.0 forces the flip.
+    seed_benchmark(&db, other, "code-review", 1.0);
+    seed_benchmark(&db, &base_winner, "code-review", 0.0);
+
+    let bench_on = route_with_weight(
+        &db,
+        &registry,
+        &tree,
+        &inv,
+        &task_of_type(TaskType::Review),
+        2.0,
+    );
+    assert_ne!(
+        bench_on.chosen_agent, base_winner,
+        "benchmark weight must change the Review route"
+    );
+    assert_eq!(bench_on.chosen_agent, other);
+    assert!(
+        bench_on
+            .decision_path
+            .iter()
+            .any(|s| s.contains("bench_adjust")),
+        "decision_path must record the benchmark adjustment"
+    );
+
+    // Scoping (R1): Docs has no mapped benchmark -> the adjustment never runs,
+    // even with the weight on. Asserting absence of the audit line is immune to
+    // running_tasks drift between calls.
+    let docs_on = route_with_weight(
+        &db,
+        &registry,
+        &tree,
+        &inv,
+        &task_of_type(TaskType::Docs),
+        2.0,
+    );
+    assert!(
+        !docs_on
+            .decision_path
+            .iter()
+            .any(|s| s.contains("bench_adjust")),
+        "Docs route must not be touched by code-review scores (no leak)"
+    );
 }
 
 // ===========================================================================
