@@ -89,7 +89,7 @@ arbiter/
 └── orchestrator/        # Python MCP client library
 ```
 
-**arbiter-core** is a pure logic library — no database, no network. It owns types, decision tree inference, invariant checking, and feature vector construction. The one exception is the shared `obs` observability emitter, which writes file-per-pid JSONL log sinks consumed by both `arbiter-mcp` and `arbiter-cli`.
+**arbiter-core** is a pure logic library — no database, no network. It owns types, decision tree inference, invariant checking, and feature vector construction. The one exception is the `obs` observability emitter: it lives in `arbiter-core` as shared infrastructure (so any binary can use it) and writes file-per-pid JSONL log sinks. It is currently initialized only by the `arbiter-mcp` server.
 
 **arbiter-mcp** is the main binary — it owns the MCP protocol, stdio I/O, SQLite persistence, config loading, and tool dispatch.
 
