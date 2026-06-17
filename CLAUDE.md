@@ -62,6 +62,7 @@ arbiter/
 │       ├── types.rs              # AgentFeatureVector (22-dim), AgentAction, AgentState
 │       ├── error.rs              # ArbiterError type (thiserror)
 │       ├── traits.rs             # Shared traits (PolicyEngine, InvariantChecker)
+│       ├── obs.rs                 # Observability emitter (file-per-pid JSONL sinks, OTel Logs)
 │       ├── policy/
 │       │   ├── mod.rs            # Policy module
 │       │   ├── decision_tree.rs  # Native DT inference (sklearn JSON → tree traversal)
@@ -267,10 +268,10 @@ See `arbiter-spec.md` sections 4.2 (`route_task`), 4.3 (`report_outcome`), 4.4 (
 
 | Layer | Tool | Location | Count |
 |---|---|---|---|
-| Unit (Rust) | `cargo test` | `arbiter-core/src/`, `arbiter-mcp/src/` | ~270 tests |
-| Integration (Rust) | `cargo test --test integration` | `arbiter-mcp/tests/integration.rs` | 12 tests |
+| Unit (Rust) | `cargo test` | `arbiter-core/src/`, `arbiter-mcp/src/` | ~285 tests |
+| Integration (Rust) | `cargo test --test integration` | `arbiter-mcp/tests/integration.rs` | 16 tests |
 | Golden (Rust) | `cargo test --test golden_tests` | `arbiter-mcp/tests/golden_tests.rs` | 12 fixtures |
-| MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 7 tests |
+| MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 12 tests |
 | Benchmarks (Rust) | `cargo run --bin arbiter-cli` | `arbiter-cli/src/` | 5 benchmarks |
 
 ### Performance Targets
@@ -313,7 +314,7 @@ See `arbiter-spec.md` sections 4.2 (`route_task`), 4.3 (`report_outcome`), 4.4 (
 1. Check `arbiter.db` → `decisions` table for the task_id
 2. Look at `feature_vector` (22 floats) and `decision_path` (tree traversal)
 3. Check `invariants_json` for any failed rules
-4. Use `arbiter-cli tree` to visualize the decision tree structure
+4. Inspect the tree structure directly in `models/agent_policy_tree.json` (sklearn export), or evaluate its quality with `uv run python scripts/eval_tree.py`
 
 ---
 
