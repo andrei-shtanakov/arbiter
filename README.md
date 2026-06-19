@@ -124,7 +124,7 @@ Routes a coding task to the best available agent.
       },
       "constraints": {
         "budget_remaining_usd": 5.0,
-        "preferred_agent": "claude_code"
+        "preferred_agent": "claude_code@claude-opus-4-8"
       }
     }
   }
@@ -140,7 +140,7 @@ Routes a coding task to the best available agent.
   "result": {
     "content": [{
       "type": "text",
-      "text": "{\"task_id\":\"task-42\",\"action\":\"assign\",\"chosen_agent\":\"claude_code\",\"confidence\":0.85,\"reasoning\":\"Best match for python bugfix\",\"invariant_checks\":[{\"rule\":\"agent_available\",\"passed\":true,\"severity\":\"critical\"}, ...],\"inference_us\":42}"
+      "text": "{\"task_id\":\"task-42\",\"action\":\"assign\",\"chosen_agent\":\"claude_code@claude-opus-4-8\",\"confidence\":0.85,\"reasoning\":\"Best match for python bugfix\",\"invariant_checks\":[{\"rule\":\"agent_available\",\"passed\":true,\"severity\":\"critical\"}, ...],\"inference_us\":42}"
     }]
   }
 }
@@ -161,7 +161,7 @@ Reports task execution results to update agent statistics.
     "name": "report_outcome",
     "arguments": {
       "task_id": "task-42",
-      "agent_id": "claude_code",
+      "agent_id": "claude_code@claude-opus-4-8",
       "status": "success",
       "duration_min": 12.5,
       "tokens_used": 1850,
@@ -187,7 +187,7 @@ Queries agent capabilities, current load, and performance history.
   "params": {
     "name": "get_agent_status",
     "arguments": {
-      "agent_id": "claude_code"
+      "agent_id": "claude_code@claude-opus-4-8"
     }
   }
 }
@@ -248,7 +248,7 @@ Returns budget overview: total spent, budget limit, remaining amount, and per-ag
       "payload_version": "1.0.0",
       "run_id": "run-abc123",
       "benchmark_id": "atp-python-bugfix-v1",
-      "agent_id": "claude_code",
+      "agent_id": "claude_code@claude-opus-4-8",
       "ts": "2026-05-23T10:00:00Z",
       "score": 0.87,
       "score_components": {"correctness": 0.9, "speed": 0.8},
@@ -333,7 +333,7 @@ async def main():
     )
 
     # Check agent status
-    status = await client.get_agent_status("claude_code")
+    status = await client.get_agent_status("claude_code@claude-opus-4-8")
     print(f"Success rate: {status['success_rate']}")
 
     await client.stop()
@@ -365,10 +365,17 @@ cargo run --release --bin arbiter-cli -- bench
 
 ### agents.toml
 
-Defines the available coding agents and their capabilities.
+Defines the available coding agents and their capabilities. Each section header
+is the agent's `agent_id` — the opaque routing key used everywhere
+(`preferred_agent`, `chosen_agent`, `report_outcome.agent_id`, `benchmark_runs`).
+
+Since the 2026-06-19 convention change, ids follow `<harness>@<model>` so a model
+is a first-class routing dimension (e.g. one harness running multiple models no
+longer collides). The model id is verbatim and may contain `.`/`-`/`:`; because
+`@` is not allowed in a bare TOML key, the section headers are quoted.
 
 ```toml
-[claude_code]
+["claude_code@claude-opus-4-8"]
 display_name = "Claude Code"
 supports_languages = ["python", "rust", "typescript"]
 supports_types = ["feature", "bugfix", "refactor", "docs", "review", "research"]
@@ -376,7 +383,7 @@ max_concurrent = 2
 cost_per_hour = 0.30
 avg_duration_min = 18.0
 
-[codex_cli]
+["codex_cli@gpt-5-codex"]
 display_name = "Codex CLI"
 supports_languages = ["typescript", "go", "python"]
 supports_types = ["feature", "bugfix", "refactor", "test"]
