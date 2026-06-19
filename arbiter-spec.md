@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 -- Registered agents and their current state
 CREATE TABLE IF NOT EXISTS agents (
-    id                TEXT PRIMARY KEY,           -- "claude_code", "codex_cli", "aider"
+    id                TEXT PRIMARY KEY,           -- agent_id; usually "<harness>@<model>" (e.g. "claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex"), harness-only allowed (e.g. "aider")
     display_name      TEXT NOT NULL,
     state             TEXT NOT NULL DEFAULT 'active'
                       CHECK (state IN ('active', 'inactive', 'busy', 'failed')),
@@ -615,7 +615,7 @@ If Arbiter is unavailable, the Orchestrator switches to a built-in round-robin:
 ```python
 class FallbackScheduler:
     """Used when Arbiter is unavailable"""
-    AGENT_ORDER = ["claude_code", "codex_cli", "aider"]
+    AGENT_ORDER = ["claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex", "aider"]
 
     def __init__(self):
         self._index = 0
@@ -700,6 +700,11 @@ class FallbackScheduler:
 ### 7.1 Expert Rules
 
 Minimal set of rules for cold start (extensible):
+
+> Agent ids follow the `<harness>@<model>` convention (since 2026-06-19); the
+> `Agent` column below uses the harness as shorthand (e.g. `claude_code` →
+> `claude_code@claude-opus-4-8`, `codex_cli` → `codex_cli@gpt-5-codex`). The
+> exact ids live in `config/agents.toml`.
 
 | # | Conditions | Agent | Rationale |
 |---|---|---|---|
