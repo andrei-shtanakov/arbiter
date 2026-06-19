@@ -4,7 +4,7 @@ Generates a synthetic benchmark suite of tasks with expert-defined
 correct answers, then measures accuracy and cost for three strategies:
   1. Decision Tree (DT) — loads trained tree JSON and runs inference
   2. Round-Robin (RR) — cycles through agents
-  3. Always-Claude (AB) — always picks "claude_code"
+  3. Always-Claude (AB) — always picks "claude_code@claude-opus-4-8"
 
 Usage:
     uv run python scripts/eval_tree.py
@@ -23,11 +23,11 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-AGENTS: list[str] = ["claude_code", "codex_cli", "aider"]
+AGENTS: list[str] = ["claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex", "aider"]
 
 AGENT_COSTS: dict[str, float] = {
-    "claude_code": 0.30,
-    "codex_cli": 0.20,
+    "claude_code@claude-opus-4-8": 0.30,
+    "codex_cli@gpt-5-codex": 0.20,
     "aider": 0.10,
 }
 
@@ -99,17 +99,53 @@ class ExpertRule:
 
 # 20 expert rules covering the main routing patterns from bootstrap
 EXPERT_RULES: list[ExpertRule] = [
-    # Rule group 1: complex/critical + Rust -> claude_code
-    ExpertRule(TASK_FEATURE, LANG_RUST, COMP_COMPLEX, "claude_code", 15.0, 0.15),
-    ExpertRule(TASK_BUGFIX, LANG_RUST, COMP_CRITICAL, "claude_code", 15.0, 0.15),
-    ExpertRule(TASK_REFACTOR, LANG_RUST, COMP_COMPLEX, "claude_code", 15.0, 0.15),
-    # Rule group 2: complex/critical + Python -> claude_code
-    ExpertRule(TASK_FEATURE, LANG_PYTHON, COMP_COMPLEX, "claude_code", 15.0, 0.15),
-    ExpertRule(TASK_BUGFIX, LANG_PYTHON, COMP_CRITICAL, "claude_code", 15.0, 0.15),
-    # Rule group 3: docs/review/research -> claude_code
-    ExpertRule(TASK_DOCS, LANG_PYTHON, COMP_MODERATE, "claude_code", 15.0, 0.15),
-    ExpertRule(TASK_REVIEW, LANG_RUST, COMP_SIMPLE, "claude_code", 15.0, 0.15),
-    ExpertRule(TASK_RESEARCH, LANG_TYPESCRIPT, COMP_TRIVIAL, "claude_code", 15.0, 0.15),
+    # Rule group 1: complex/critical + Rust -> claude_code@claude-opus-4-8
+    ExpertRule(
+        TASK_FEATURE, LANG_RUST, COMP_COMPLEX, "claude_code@claude-opus-4-8", 15.0, 0.15
+    ),
+    ExpertRule(
+        TASK_BUGFIX, LANG_RUST, COMP_CRITICAL, "claude_code@claude-opus-4-8", 15.0, 0.15
+    ),
+    ExpertRule(
+        TASK_REFACTOR,
+        LANG_RUST,
+        COMP_COMPLEX,
+        "claude_code@claude-opus-4-8",
+        15.0,
+        0.15,
+    ),
+    # Rule group 2: complex/critical + Python -> claude_code@claude-opus-4-8
+    ExpertRule(
+        TASK_FEATURE,
+        LANG_PYTHON,
+        COMP_COMPLEX,
+        "claude_code@claude-opus-4-8",
+        15.0,
+        0.15,
+    ),
+    ExpertRule(
+        TASK_BUGFIX,
+        LANG_PYTHON,
+        COMP_CRITICAL,
+        "claude_code@claude-opus-4-8",
+        15.0,
+        0.15,
+    ),
+    # Rule group 3: docs/review/research -> claude_code@claude-opus-4-8
+    ExpertRule(
+        TASK_DOCS, LANG_PYTHON, COMP_MODERATE, "claude_code@claude-opus-4-8", 15.0, 0.15
+    ),
+    ExpertRule(
+        TASK_REVIEW, LANG_RUST, COMP_SIMPLE, "claude_code@claude-opus-4-8", 15.0, 0.15
+    ),
+    ExpertRule(
+        TASK_RESEARCH,
+        LANG_TYPESCRIPT,
+        COMP_TRIVIAL,
+        "claude_code@claude-opus-4-8",
+        15.0,
+        0.15,
+    ),
     # Rule group 4: trivial/simple + bugfix -> aider
     ExpertRule(TASK_BUGFIX, LANG_PYTHON, COMP_TRIVIAL, "aider", 8.0, 0.05),
     ExpertRule(TASK_BUGFIX, LANG_TYPESCRIPT, COMP_SIMPLE, "aider", 8.0, 0.05),
@@ -117,14 +153,27 @@ EXPERT_RULES: list[ExpertRule] = [
     # Rule group 5: trivial/simple + refactor -> aider
     ExpertRule(TASK_REFACTOR, LANG_PYTHON, COMP_SIMPLE, "aider", 6.0, 0.04),
     ExpertRule(TASK_REFACTOR, LANG_TYPESCRIPT, COMP_TRIVIAL, "aider", 6.0, 0.04),
-    # Rule group 6: TypeScript + feature -> codex_cli
-    ExpertRule(TASK_FEATURE, LANG_TYPESCRIPT, COMP_SIMPLE, "codex_cli", 12.0, 0.12),
-    ExpertRule(TASK_FEATURE, LANG_TYPESCRIPT, COMP_MODERATE, "codex_cli", 12.0, 0.12),
-    # Rule group 7: Go language -> codex_cli
-    ExpertRule(TASK_FEATURE, LANG_GO, COMP_SIMPLE, "codex_cli", 10.0, 0.10),
-    ExpertRule(TASK_BUGFIX, LANG_GO, COMP_MODERATE, "codex_cli", 10.0, 0.10),
-    # Rule group 8: moderate + Python -> codex_cli
-    ExpertRule(TASK_FEATURE, LANG_PYTHON, COMP_MODERATE, "codex_cli", 12.0, 0.10),
+    # Rule group 6: TypeScript + feature -> codex_cli@gpt-5-codex
+    ExpertRule(
+        TASK_FEATURE, LANG_TYPESCRIPT, COMP_SIMPLE, "codex_cli@gpt-5-codex", 12.0, 0.12
+    ),
+    ExpertRule(
+        TASK_FEATURE,
+        LANG_TYPESCRIPT,
+        COMP_MODERATE,
+        "codex_cli@gpt-5-codex",
+        12.0,
+        0.12,
+    ),
+    # Rule group 7: Go language -> codex_cli@gpt-5-codex
+    ExpertRule(TASK_FEATURE, LANG_GO, COMP_SIMPLE, "codex_cli@gpt-5-codex", 10.0, 0.10),
+    ExpertRule(
+        TASK_BUGFIX, LANG_GO, COMP_MODERATE, "codex_cli@gpt-5-codex", 10.0, 0.10
+    ),
+    # Rule group 8: moderate + Python -> codex_cli@gpt-5-codex
+    ExpertRule(
+        TASK_FEATURE, LANG_PYTHON, COMP_MODERATE, "codex_cli@gpt-5-codex", 12.0, 0.10
+    ),
     # Rule group 9: test + simple/moderate -> aider
     ExpertRule(TASK_TEST, LANG_PYTHON, COMP_SIMPLE, "aider", 7.0, 0.05),
     ExpertRule(TASK_TEST, LANG_RUST, COMP_MODERATE, "aider", 7.0, 0.05),
@@ -263,8 +312,8 @@ def strategy_round_robin(tasks: list[BenchmarkTask]) -> list[str]:
 
 
 def strategy_always_claude(tasks: list[BenchmarkTask]) -> list[str]:
-    """Always-claude strategy: always pick claude_code."""
-    return ["claude_code"] * len(tasks)
+    """Always-claude strategy: always pick claude_code@claude-opus-4-8."""
+    return ["claude_code@claude-opus-4-8"] * len(tasks)
 
 
 # ---------------------------------------------------------------------------

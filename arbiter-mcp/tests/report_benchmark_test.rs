@@ -8,7 +8,7 @@ fn valid_payload(run_id: &str) -> serde_json::Value {
         "payload_version": "1.0.0",
         "run_id": run_id,
         "benchmark_id": "swe-mini",
-        "agent_id": "claude_code",
+        "agent_id": "claude_code@claude-opus-4-8",
         "ts": "2026-05-23T12:00:00Z",
         "score": 0.85,
         "score_components": {"accuracy": 0.85},

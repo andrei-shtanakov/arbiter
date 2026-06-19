@@ -1,4 +1,4 @@
-[claude_code]
+["claude_code@claude-opus-4-8"]
 display_name = "Claude Code"
 supports_languages = ["python", "rust", "typescript"]
 supports_types = ["feature", "bugfix", "refactor", "docs", "review", "research"]
@@ -6,7 +6,7 @@ max_concurrent = 2
 cost_per_hour = 0.30
 avg_duration_min = 18.0
 
-[codex_cli]
+["codex_cli@gpt-5-codex"]
 display_name = "Codex CLI"
 supports_languages = ["typescript", "go", "python"]
 supports_types = ["feature", "bugfix", "refactor", "test"]
