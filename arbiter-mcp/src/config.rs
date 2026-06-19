@@ -95,7 +95,7 @@ pub struct InvariantConfig {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct ArbiterConfig {
-    /// Agent definitions keyed by agent ID (e.g. "claude_code").
+    /// Agent definitions keyed by agent ID (e.g. "claude_code@claude-opus-4-8").
     pub agents: HashMap<String, AgentConfig>,
     /// Invariant rule thresholds.
     pub invariants: InvariantConfig,
@@ -210,7 +210,7 @@ mod tests {
     /// Helper: create a temp dir with valid config files.
     fn write_valid_config(dir: &Path) {
         let agents = r#"
-[claude_code]
+["claude_code@claude-opus-4-8"]
 display_name = "Claude Code"
 supports_languages = ["python", "rust", "typescript"]
 supports_types = ["feature", "bugfix", "refactor", "docs", "review"]
@@ -218,7 +218,7 @@ max_concurrent = 2
 cost_per_hour = 0.30
 avg_duration_min = 18.0
 
-[codex_cli]
+["codex_cli@gpt-5-codex"]
 display_name = "Codex CLI"
 supports_languages = ["typescript", "go", "python"]
 supports_types = ["feature", "bugfix", "refactor", "test"]
@@ -267,7 +267,7 @@ buffer_multiplier = 1.5
         let agents = load_agents(dir.path()).unwrap();
         assert_eq!(agents.len(), 3);
 
-        let claude = &agents["claude_code"];
+        let claude = &agents["claude_code@claude-opus-4-8"];
         assert_eq!(claude.display_name, "Claude Code");
         assert_eq!(
             claude.supports_languages,
@@ -281,7 +281,7 @@ buffer_multiplier = 1.5
         assert!((claude.cost_per_hour - 0.30).abs() < f64::EPSILON);
         assert!((claude.avg_duration_min - 18.0).abs() < f64::EPSILON);
 
-        let codex = &agents["codex_cli"];
+        let codex = &agents["codex_cli@gpt-5-codex"];
         assert_eq!(codex.display_name, "Codex CLI");
         assert_eq!(codex.max_concurrent, 3);
 

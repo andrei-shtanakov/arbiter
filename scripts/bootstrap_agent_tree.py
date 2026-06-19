@@ -55,7 +55,7 @@ FEATURE_NAMES: list[str] = [
 ]
 
 # Agent classes
-AGENTS: list[str] = ["claude_code", "codex_cli", "aider"]
+AGENTS: list[str] = ["claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex", "aider"]
 AGENT_IDX: dict[str, int] = {name: i for i, name in enumerate(AGENTS)}
 
 # Task type ordinals
@@ -161,7 +161,7 @@ def generate_expert_examples(
             examples.append(features[:])
             labels.append(AGENT_IDX[agent])
 
-    # Rule 1: complex/critical + Rust -> claude_code
+    # Rule 1: complex/critical + Rust -> claude_code@claude-opus-4-8
     for complexity in [COMP_COMPLEX, COMP_CRITICAL]:
         for priority in [PRI_LOW, PRI_NORMAL, PRI_HIGH, PRI_URGENT]:
             for task in [TASK_FEATURE, TASK_BUGFIX, TASK_REFACTOR]:
@@ -174,10 +174,10 @@ def generate_expert_examples(
                             priority=priority,
                             estimated_tokens=tokens,
                         ),
-                        "claude_code",
+                        "claude_code@claude-opus-4-8",
                     )
 
-    # Rule 2: complex/critical + Python -> claude_code
+    # Rule 2: complex/critical + Python -> claude_code@claude-opus-4-8
     for complexity in [COMP_COMPLEX, COMP_CRITICAL]:
         for priority in [PRI_NORMAL, PRI_HIGH, PRI_URGENT]:
             for task in [TASK_FEATURE, TASK_BUGFIX, TASK_REFACTOR]:
@@ -190,10 +190,10 @@ def generate_expert_examples(
                             priority=priority,
                             estimated_tokens=tokens,
                         ),
-                        "claude_code",
+                        "claude_code@claude-opus-4-8",
                     )
 
-    # Rule 3: docs/review/research -> claude_code
+    # Rule 3: docs/review/research -> claude_code@claude-opus-4-8
     for task in [TASK_DOCS, TASK_REVIEW, TASK_RESEARCH]:
         for lang in [
             LANG_PYTHON,
@@ -211,7 +211,7 @@ def generate_expert_examples(
                         complexity=complexity,
                         requires_internet=1.0,
                     ),
-                    "claude_code",
+                    "claude_code@claude-opus-4-8",
                 )
 
     # Rule 4: trivial/simple + bugfix -> aider
@@ -250,7 +250,7 @@ def generate_expert_examples(
                         "aider",
                     )
 
-    # Rule 6: TypeScript + feature -> codex_cli
+    # Rule 6: TypeScript + feature -> codex_cli@gpt-5-codex
     for complexity in [
         COMP_TRIVIAL,
         COMP_SIMPLE,
@@ -268,10 +268,10 @@ def generate_expert_examples(
                         avg_duration=12.0,
                         avg_cost=0.12,
                     ),
-                    "codex_cli",
+                    "codex_cli@gpt-5-codex",
                 )
 
-    # Rule 7: Go language -> codex_cli
+    # Rule 7: Go language -> codex_cli@gpt-5-codex
     for task in [TASK_FEATURE, TASK_BUGFIX, TASK_REFACTOR, TASK_TEST]:
         for complexity in range(4):
             for priority in [PRI_LOW, PRI_NORMAL, PRI_HIGH]:
@@ -285,10 +285,10 @@ def generate_expert_examples(
                         avg_duration=10.0,
                         avg_cost=0.10,
                     ),
-                    "codex_cli",
+                    "codex_cli@gpt-5-codex",
                 )
 
-    # Rule 8: moderate + Python -> codex_cli
+    # Rule 8: moderate + Python -> codex_cli@gpt-5-codex
     for task in [TASK_FEATURE, TASK_BUGFIX, TASK_REFACTOR]:
         for priority in [PRI_LOW, PRI_NORMAL, PRI_HIGH]:
             for scope in [3.0, 8.0, 15.0]:
@@ -303,7 +303,7 @@ def generate_expert_examples(
                         avg_duration=12.0,
                         avg_cost=0.10,
                     ),
-                    "codex_cli",
+                    "codex_cli@gpt-5-codex",
                 )
 
     # Rule 9: test + simple/moderate -> aider
@@ -324,7 +324,7 @@ def generate_expert_examples(
                         "aider",
                     )
 
-    # Rule 10: DEFAULT -> claude_code (catch-all)
+    # Rule 10: DEFAULT -> claude_code@claude-opus-4-8 (catch-all)
     for task in [
         TASK_FEATURE,
         TASK_BUGFIX,
@@ -347,7 +347,7 @@ def generate_expert_examples(
                             priority=priority,
                             estimated_tokens=70.0,
                         ),
-                        "claude_code",
+                        "claude_code@claude-opus-4-8",
                     )
 
     return examples, labels

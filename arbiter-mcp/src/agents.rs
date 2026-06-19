@@ -180,7 +180,7 @@ mod tests {
     fn test_agents() -> HashMap<String, AgentConfig> {
         let mut agents = HashMap::new();
         agents.insert(
-            "claude_code".to_string(),
+            "claude_code@claude-opus-4-8".to_string(),
             AgentConfig {
                 display_name: "Claude Code".to_string(),
                 supports_languages: vec!["python".to_string(), "rust".to_string()],
@@ -218,7 +218,7 @@ mod tests {
 
         // Verify agents are in the database.
         let ids = db.list_agent_ids().unwrap();
-        assert!(ids.contains(&"claude_code".to_string()));
+        assert!(ids.contains(&"claude_code@claude-opus-4-8".to_string()));
         assert!(ids.contains(&"aider".to_string()));
     }
 
@@ -228,11 +228,11 @@ mod tests {
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         let info = registry
-            .get_agent_info("claude_code")
+            .get_agent_info("claude_code@claude-opus-4-8")
             .unwrap()
             .expect("agent should exist");
 
-        assert_eq!(info.agent_id, "claude_code");
+        assert_eq!(info.agent_id, "claude_code@claude-opus-4-8");
         assert_eq!(info.config.display_name, "Claude Code");
         assert_eq!(info.running_tasks, 0);
         assert!(info.success_rate.is_none()); // No stats yet.
@@ -261,7 +261,7 @@ mod tests {
             task_json: "{}".to_string(),
             feature_vector: "[]".to_string(),
             constraints_json: None,
-            chosen_agent: "claude_code".to_string(),
+            chosen_agent: "claude_code@claude-opus-4-8".to_string(),
             action: "assign".to_string(),
             confidence: 0.9,
             decision_path: "[]".to_string(),
@@ -277,7 +277,7 @@ mod tests {
         let outcome = OutcomeRecord {
             task_id: "t1".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "claude_code".to_string(),
+            agent_id: "claude_code@claude-opus-4-8".to_string(),
             status: "success".to_string(),
             duration_min: Some(15.0),
             tokens_used: Some(20000),
@@ -290,11 +290,14 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome).unwrap();
-        db.update_agent_stats("claude_code", "bugfix", "python", &outcome)
+        db.update_agent_stats("claude_code@claude-opus-4-8", "bugfix", "python", &outcome)
             .unwrap();
 
         // Now info should reflect stats.
-        let info = registry.get_agent_info("claude_code").unwrap().unwrap();
+        let info = registry
+            .get_agent_info("claude_code@claude-opus-4-8")
+            .unwrap()
+            .unwrap();
         assert_eq!(info.success_rate, Some(1.0));
         assert_eq!(info.avg_duration_min, Some(15.0));
         assert_eq!(info.avg_cost_usd, Some(0.20));
@@ -307,15 +310,23 @@ mod tests {
         let (db, agents) = setup();
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
-        db.increment_running_tasks("claude_code").unwrap();
-        registry.invalidate_cache("claude_code");
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
+        registry.invalidate_cache("claude_code@claude-opus-4-8");
 
-        let info = registry.get_agent_info("claude_code").unwrap().unwrap();
+        let info = registry
+            .get_agent_info("claude_code@claude-opus-4-8")
+            .unwrap()
+            .unwrap();
         assert_eq!(info.running_tasks, 1);
 
-        db.decrement_running_tasks("claude_code").unwrap();
-        registry.invalidate_cache("claude_code");
-        let info = registry.get_agent_info("claude_code").unwrap().unwrap();
+        db.decrement_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
+        registry.invalidate_cache("claude_code@claude-opus-4-8");
+        let info = registry
+            .get_agent_info("claude_code@claude-opus-4-8")
+            .unwrap()
+            .unwrap();
         assert_eq!(info.running_tasks, 0);
     }
 
@@ -328,7 +339,7 @@ mod tests {
         assert_eq!(all.len(), 2);
 
         let ids: Vec<&str> = all.iter().map(|a| a.agent_id.as_str()).collect();
-        assert!(ids.contains(&"claude_code"));
+        assert!(ids.contains(&"claude_code@claude-opus-4-8"));
         assert!(ids.contains(&"aider"));
     }
 
@@ -337,7 +348,8 @@ mod tests {
         let (db, agents) = setup();
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
-        db.increment_running_tasks("claude_code").unwrap();
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
         db.increment_running_tasks("aider").unwrap();
         db.increment_running_tasks("aider").unwrap();
 
@@ -350,12 +362,17 @@ mod tests {
 
         // First registry.
         let _reg1 = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
-        db.increment_running_tasks("claude_code").unwrap();
-        db.increment_running_tasks("claude_code").unwrap();
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
 
         // Second registry (simulating restart with re-upsert).
         let reg2 = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
-        let info = reg2.get_agent_info("claude_code").unwrap().unwrap();
+        let info = reg2
+            .get_agent_info("claude_code@claude-opus-4-8")
+            .unwrap()
+            .unwrap();
 
         // running_tasks should be preserved (upsert doesn't reset them).
         assert_eq!(info.running_tasks, 2);
@@ -369,13 +386,20 @@ mod tests {
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         // First call populates cache
-        let info1 = registry.get_agent_info("claude_code").unwrap().unwrap();
+        let info1 = registry
+            .get_agent_info("claude_code@claude-opus-4-8")
+            .unwrap()
+            .unwrap();
 
         // Change DB state
-        db.increment_running_tasks("claude_code").unwrap();
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
 
         // Second call within TTL should return cached (stale) data
-        let info2 = registry.get_agent_info("claude_code").unwrap().unwrap();
+        let info2 = registry
+            .get_agent_info("claude_code@claude-opus-4-8")
+            .unwrap()
+            .unwrap();
         assert_eq!(info1.running_tasks, info2.running_tasks);
     }
 
@@ -384,13 +408,20 @@ mod tests {
         let (db, agents) = setup();
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
-        let info1 = registry.get_agent_info("claude_code").unwrap().unwrap();
+        let info1 = registry
+            .get_agent_info("claude_code@claude-opus-4-8")
+            .unwrap()
+            .unwrap();
         assert_eq!(info1.running_tasks, 0);
 
-        db.increment_running_tasks("claude_code").unwrap();
-        registry.invalidate_cache("claude_code");
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
+        registry.invalidate_cache("claude_code@claude-opus-4-8");
 
-        let info2 = registry.get_agent_info("claude_code").unwrap().unwrap();
+        let info2 = registry
+            .get_agent_info("claude_code@claude-opus-4-8")
+            .unwrap()
+            .unwrap();
         assert_eq!(info2.running_tasks, 1);
     }
 }

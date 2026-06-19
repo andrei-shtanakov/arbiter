@@ -42,7 +42,7 @@ fn bootstrap_tree() -> DecisionTree {
 fn test_agents() -> HashMap<String, AgentConfig> {
     let mut agents = HashMap::new();
     agents.insert(
-        "claude_code".to_string(),
+        "claude_code@claude-opus-4-8".to_string(),
         AgentConfig {
             display_name: "Claude Code".to_string(),
             supports_languages: vec![
@@ -63,7 +63,7 @@ fn test_agents() -> HashMap<String, AgentConfig> {
         },
     );
     agents.insert(
-        "codex_cli".to_string(),
+        "codex_cli@gpt-5-codex".to_string(),
         AgentConfig {
             display_name: "Codex CLI".to_string(),
             supports_languages: vec![
@@ -135,7 +135,7 @@ fn test_tree_json() -> String {
     serde_json::json!({
         "n_features": 22,
         "n_classes": 3,
-        "class_names": ["claude_code", "codex_cli", "aider"],
+        "class_names": ["claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex", "aider"],
         "feature_names": [
             "task_type", "language", "complexity", "priority",
             "scope_size", "estimated_tokens", "has_dependencies",
@@ -179,7 +179,7 @@ fn sample_decision(task_id: &str) -> DecisionRecord {
                 .to_string(),
         feature_vector: "[]".to_string(),
         constraints_json: None,
-        chosen_agent: "claude_code".to_string(),
+        chosen_agent: "claude_code@claude-opus-4-8".to_string(),
         action: "assign".to_string(),
         confidence: 0.92,
         decision_path: "[]".to_string(),
@@ -198,7 +198,7 @@ fn sample_decision(task_id: &str) -> DecisionRecord {
 
 /// Two agents that BOTH support `review` + `docs` and share `python`, so a
 /// Review (or Docs) task yields exactly these two candidates. The default
-/// `test_agents()` only gives `claude_code` the `review` capability, which would
+/// `test_agents()` only gives `claude_code@claude-opus-4-8` the `review` capability, which would
 /// leave a single candidate and nothing to re-rank.
 fn review_test_agents() -> HashMap<String, AgentConfig> {
     let mk = |name: &str| AgentConfig {
@@ -210,7 +210,7 @@ fn review_test_agents() -> HashMap<String, AgentConfig> {
         avg_duration_min: 12.0,
     };
     let mut m = HashMap::new();
-    m.insert("claude_code".to_string(), mk("Claude Code"));
+    m.insert("claude_code@claude-opus-4-8".to_string(), mk("Claude Code"));
     m.insert("aider".to_string(), mk("Aider"));
     m
 }
@@ -330,10 +330,10 @@ fn it_08_benchmark_weight_shifts_review_route_and_scopes_docs() {
             .any(|s| s.contains("bench_adjust")),
         "weight 0 must not run the benchmark adjustment"
     );
-    let other = if base_winner == "claude_code" {
+    let other = if base_winner == "claude_code@claude-opus-4-8" {
         "aider"
     } else {
-        "claude_code"
+        "claude_code@claude-opus-4-8"
     };
 
     // Seed the OTHER agent to dominate code-review; weight 2.0 forces the flip.
@@ -455,7 +455,11 @@ fn it_01_happy_path() {
 
     // chosen_agent is non-empty and one of the known agents
     assert!(!result.chosen_agent.is_empty());
-    let valid_agents = ["claude_code", "codex_cli", "aider"];
+    let valid_agents = [
+        "claude_code@claude-opus-4-8",
+        "codex_cli@gpt-5-codex",
+        "aider",
+    ];
     assert!(
         valid_agents.contains(&result.chosen_agent.as_str()),
         "unknown chosen agent: {}",
@@ -662,8 +666,8 @@ fn it_03_all_rejected() {
     let constraints = Constraints {
         preferred_agent: None,
         excluded_agents: vec![
-            "claude_code".to_string(),
-            "codex_cli".to_string(),
+            "claude_code@claude-opus-4-8".to_string(),
+            "codex_cli@gpt-5-codex".to_string(),
             "aider".to_string(),
         ],
         budget_remaining_usd: Some(10.0),
@@ -789,7 +793,11 @@ fn it_04_cold_start() {
     );
 
     // Chosen agent should be one of the configured agents
-    let valid_agents = ["claude_code", "codex_cli", "aider"];
+    let valid_agents = [
+        "claude_code@claude-opus-4-8",
+        "codex_cli@gpt-5-codex",
+        "aider",
+    ];
     assert!(
         valid_agents.contains(&result.chosen_agent.as_str()),
         "chosen agent '{}' not in configured agents",
@@ -828,7 +836,7 @@ fn it_04_cold_start() {
 
 /// IT-05: Stats accumulation 10x
 ///
-/// GIVEN a registered agent (claude_code)
+/// GIVEN a registered agent (claude_code@claude-opus-4-8)
 /// WHEN 10 outcomes are reported (7 successes, 3 failures)
 /// THEN agent_stats accurately reflects totals, success_rate, avg_duration, avg_cost
 /// AND running_tasks returns to 0 after all outcomes are processed
@@ -849,7 +857,8 @@ fn it_05_stats_accumulation_10x() {
     for i in 0..10 {
         let decision = sample_decision(&format!("it05-{i}"));
         db.insert_decision(&decision).unwrap();
-        db.increment_running_tasks("claude_code").unwrap();
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
 
         let is_success = i % 3 != 0; // 7 successes, 3 failures
         let dur = 5.0 + i as f64;
@@ -863,7 +872,7 @@ fn it_05_stats_accumulation_10x() {
 
         let args = serde_json::json!({
             "task_id": format!("it05-{i}"),
-            "agent_id": "claude_code",
+            "agent_id": "claude_code@claude-opus-4-8",
             "status": if is_success { "success" } else { "failure" },
             "duration_min": dur,
             "cost_usd": cost
@@ -875,7 +884,7 @@ fn it_05_stats_accumulation_10x() {
     }
 
     // Verify final stats
-    let stats = db.get_agent_stats("claude_code").unwrap();
+    let stats = db.get_agent_stats("claude_code@claude-opus-4-8").unwrap();
     assert_eq!(stats.total_tasks, 10);
     assert_eq!(stats.successful_tasks, successes);
     assert_eq!(stats.failed_tasks, 10 - successes);
@@ -899,7 +908,7 @@ fn it_05_stats_accumulation_10x() {
     );
 
     // running_tasks should be back to 0
-    let running = db.get_running_tasks("claude_code").unwrap();
+    let running = db.get_running_tasks("claude_code@claude-opus-4-8").unwrap();
     assert_eq!(running, 0);
 }
 
@@ -927,11 +936,12 @@ fn it_06_agent_failure_detection() {
     for i in 0..5 {
         let decision = sample_decision(&format!("it06-{i}"));
         db.insert_decision(&decision).unwrap();
-        db.increment_running_tasks("claude_code").unwrap();
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
 
         let args = serde_json::json!({
             "task_id": format!("it06-{i}"),
-            "agent_id": "claude_code",
+            "agent_id": "claude_code@claude-opus-4-8",
             "status": "failure",
             "error_summary": format!("crash #{i}")
         });
@@ -953,12 +963,13 @@ fn it_06_agent_failure_detection() {
     // because the condition is > threshold
     let check_args = serde_json::json!({
         "task_id": "it06-check",
-        "agent_id": "claude_code",
+        "agent_id": "claude_code@claude-opus-4-8",
         "status": "success"
     });
     let decision = sample_decision("it06-check");
     db.insert_decision(&decision).unwrap();
-    db.increment_running_tasks("claude_code").unwrap();
+    db.increment_running_tasks("claude_code@claude-opus-4-8")
+        .unwrap();
     let check_result = report_outcome::execute(&check_args, &db, &config).unwrap();
     assert!(
         !check_result.retrain_suggested,
@@ -968,11 +979,12 @@ fn it_06_agent_failure_detection() {
     // Report the 6th failure (one over threshold)
     let decision = sample_decision("it06-over");
     db.insert_decision(&decision).unwrap();
-    db.increment_running_tasks("claude_code").unwrap();
+    db.increment_running_tasks("claude_code@claude-opus-4-8")
+        .unwrap();
 
     let args = serde_json::json!({
         "task_id": "it06-over",
-        "agent_id": "claude_code",
+        "agent_id": "claude_code@claude-opus-4-8",
         "status": "timeout",
         "error_summary": "timed out"
     });
@@ -1282,7 +1294,7 @@ fn tools_call_report_benchmark_dispatches() {
                 "payload_version": "1.0.0",
                 "run_id": "int-1",
                 "benchmark_id": "b",
-                "agent_id": "claude_code",
+                "agent_id": "claude_code@claude-opus-4-8",
                 "ts": "2026-05-23T12:00:00Z",
                 "score": 0.5,
                 "score_components": {},
@@ -1479,7 +1491,7 @@ fn mcp_report_and_status_e2e() {
             "name": "report_outcome",
             "arguments": {
                 "task_id": "mcp-rpt-1",
-                "agent_id": "claude_code",
+                "agent_id": "claude_code@claude-opus-4-8",
                 "status": "success",
                 "duration_min": 10.0,
                 "cost_usd": 0.15
@@ -1514,7 +1526,7 @@ fn mcp_report_and_status_e2e() {
         "jsonrpc": "2.0", "id": 4, "method": "tools/call",
         "params": {
             "name": "get_agent_status",
-            "arguments": {"agent_id": "claude_code"}
+            "arguments": {"agent_id": "claude_code@claude-opus-4-8"}
         }
     });
     let resp = dispatch(&mut server, &status_req.to_string()).unwrap();
@@ -1564,7 +1576,7 @@ fn feature_vector_and_dt_determinism() {
 
     let agents = vec![
         AgentInfo {
-            agent_id: "claude_code".to_string(),
+            agent_id: "claude_code@claude-opus-4-8".to_string(),
             config: AgentConfig {
                 display_name: "Claude Code".to_string(),
                 supports_languages: vec!["rust".to_string()],
@@ -1580,7 +1592,7 @@ fn feature_vector_and_dt_determinism() {
             recent_failures: 0,
         },
         AgentInfo {
-            agent_id: "codex_cli".to_string(),
+            agent_id: "codex_cli@gpt-5-codex".to_string(),
             config: AgentConfig {
                 display_name: "Codex CLI".to_string(),
                 supports_languages: vec!["typescript".to_string()],

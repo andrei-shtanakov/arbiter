@@ -277,7 +277,7 @@ mod tests {
     fn test_agents() -> HashMap<String, AgentConfig> {
         let mut agents = HashMap::new();
         agents.insert(
-            "claude_code".to_string(),
+            "claude_code@claude-opus-4-8".to_string(),
             AgentConfig {
                 display_name: "Claude Code".to_string(),
                 supports_languages: vec!["python".to_string(), "rust".to_string()],
@@ -288,7 +288,7 @@ mod tests {
             },
         );
         agents.insert(
-            "codex_cli".to_string(),
+            "codex_cli@gpt-5-codex".to_string(),
             AgentConfig {
                 display_name: "Codex CLI".to_string(),
                 supports_languages: vec!["typescript".to_string(), "python".to_string()],
@@ -335,8 +335,8 @@ mod tests {
 
         assert_eq!(result.agents.len(), 3);
         let ids: Vec<&str> = result.agents.iter().map(|a| a.id.as_str()).collect();
-        assert!(ids.contains(&"claude_code"));
-        assert!(ids.contains(&"codex_cli"));
+        assert!(ids.contains(&"claude_code@claude-opus-4-8"));
+        assert!(ids.contains(&"codex_cli@gpt-5-codex"));
         assert!(ids.contains(&"aider"));
     }
 
@@ -347,11 +347,11 @@ mod tests {
         let (db, agents) = setup();
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
-        let args = serde_json::json!({ "agent_id": "claude_code" });
+        let args = serde_json::json!({ "agent_id": "claude_code@claude-opus-4-8" });
         let result = execute(&args, &db, &registry, 5).unwrap();
 
         assert_eq!(result.agents.len(), 1);
-        assert_eq!(result.agents[0].id, "claude_code");
+        assert_eq!(result.agents[0].id, "claude_code@claude-opus-4-8");
         assert_eq!(result.agents[0].display_name, "Claude Code");
     }
 
@@ -380,7 +380,7 @@ mod tests {
         let (db, agents) = setup();
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
-        let args = serde_json::json!({ "agent_id": "claude_code" });
+        let args = serde_json::json!({ "agent_id": "claude_code@claude-opus-4-8" });
         let result = execute(&args, &db, &registry, 5).unwrap();
 
         let agent = &result.agents[0];
@@ -400,7 +400,7 @@ mod tests {
         let (db, agents) = setup();
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
-        let args = serde_json::json!({ "agent_id": "claude_code" });
+        let args = serde_json::json!({ "agent_id": "claude_code@claude-opus-4-8" });
         let result = execute(&args, &db, &registry, 5).unwrap();
 
         let agent = &result.agents[0];
@@ -417,9 +417,10 @@ mod tests {
         let (db, agents) = setup();
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
-        db.increment_running_tasks("claude_code").unwrap();
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
 
-        let args = serde_json::json!({ "agent_id": "claude_code" });
+        let args = serde_json::json!({ "agent_id": "claude_code@claude-opus-4-8" });
         let result = execute(&args, &db, &registry, 5).unwrap();
 
         let agent = &result.agents[0];
@@ -436,10 +437,12 @@ mod tests {
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
         // Fill both slots (max_concurrent = 2)
-        db.increment_running_tasks("claude_code").unwrap();
-        db.increment_running_tasks("claude_code").unwrap();
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
+        db.increment_running_tasks("claude_code@claude-opus-4-8")
+            .unwrap();
 
-        let args = serde_json::json!({ "agent_id": "claude_code" });
+        let args = serde_json::json!({ "agent_id": "claude_code@claude-opus-4-8" });
         let result = execute(&args, &db, &registry, 5).unwrap();
 
         let agent = &result.agents[0];
@@ -455,11 +458,11 @@ mod tests {
         let (db, agents) = setup();
         let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
 
-        // Record outcomes for claude_code
+        // Record outcomes for claude_code@claude-opus-4-8
         let outcome1 = OutcomeRecord {
             task_id: "t1".to_string(),
             decision_id: None,
-            agent_id: "claude_code".to_string(),
+            agent_id: "claude_code@claude-opus-4-8".to_string(),
             status: "success".to_string(),
             duration_min: Some(10.0),
             tokens_used: Some(1000),
@@ -472,13 +475,13 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome1).unwrap();
-        db.update_agent_stats("claude_code", "bugfix", "python", &outcome1)
+        db.update_agent_stats("claude_code@claude-opus-4-8", "bugfix", "python", &outcome1)
             .unwrap();
 
         let outcome2 = OutcomeRecord {
             task_id: "t2".to_string(),
             decision_id: None,
-            agent_id: "claude_code".to_string(),
+            agent_id: "claude_code@claude-opus-4-8".to_string(),
             status: "success".to_string(),
             duration_min: Some(20.0),
             tokens_used: Some(2000),
@@ -491,13 +494,13 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome2).unwrap();
-        db.update_agent_stats("claude_code", "feature", "rust", &outcome2)
+        db.update_agent_stats("claude_code@claude-opus-4-8", "feature", "rust", &outcome2)
             .unwrap();
 
         let outcome3 = OutcomeRecord {
             task_id: "t3".to_string(),
             decision_id: None,
-            agent_id: "claude_code".to_string(),
+            agent_id: "claude_code@claude-opus-4-8".to_string(),
             status: "failure".to_string(),
             duration_min: Some(5.0),
             tokens_used: Some(500),
@@ -510,10 +513,10 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome3).unwrap();
-        db.update_agent_stats("claude_code", "bugfix", "python", &outcome3)
+        db.update_agent_stats("claude_code@claude-opus-4-8", "bugfix", "python", &outcome3)
             .unwrap();
 
-        let args = serde_json::json!({ "agent_id": "claude_code" });
+        let args = serde_json::json!({ "agent_id": "claude_code@claude-opus-4-8" });
         let result = execute(&args, &db, &registry, 5).unwrap();
 
         let agent = &result.agents[0];
@@ -562,7 +565,7 @@ mod tests {
     fn result_to_json_structure() {
         let result = StatusResult {
             agents: vec![AgentStatus {
-                id: "claude_code".to_string(),
+                id: "claude_code@claude-opus-4-8".to_string(),
                 display_name: "Claude Code".to_string(),
                 state: "active".to_string(),
                 capabilities: Capabilities {
@@ -591,7 +594,7 @@ mod tests {
         assert_eq!(agents.len(), 1);
 
         let a = &agents[0];
-        assert_eq!(a["id"], "claude_code");
+        assert_eq!(a["id"], "claude_code@claude-opus-4-8");
         assert_eq!(a["display_name"], "Claude Code");
         assert_eq!(a["state"], "active");
         assert_eq!(

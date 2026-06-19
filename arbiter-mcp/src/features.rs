@@ -56,7 +56,7 @@ const MAX_SCOPE_CONFLICTS: f64 = 10.0;
 /// conservative priors when absent (e.g. new agent with no history).
 #[derive(Debug, Clone)]
 pub struct AgentInfo {
-    /// Agent identifier (e.g. "claude_code").
+    /// Agent identifier (e.g. "claude_code@claude-opus-4-8").
     pub agent_id: String,
     /// Static agent config from agents.toml.
     pub config: AgentConfig,
@@ -357,7 +357,7 @@ mod tests {
 
     fn full_agent() -> AgentInfo {
         AgentInfo {
-            agent_id: "claude_code".to_string(),
+            agent_id: "claude_code@claude-opus-4-8".to_string(),
             config: test_agent_config(),
             running_tasks: 0,
             success_rate: Some(0.85),
@@ -726,7 +726,7 @@ mod tests {
                 total_pending_tasks: Some(0),
                 running_tasks: vec![RunningTask {
                     task_id: "task-42".to_string(),
-                    agent_id: "codex_cli".to_string(),
+                    agent_id: "codex_cli@gpt-5-codex".to_string(),
                     scope: vec!["src/main.rs".to_string()],
                     branch: None,
                 }],
@@ -1043,7 +1043,7 @@ mod tests {
         let system = default_system();
 
         let agent1 = AgentInfo {
-            agent_id: "claude_code".to_string(),
+            agent_id: "claude_code@claude-opus-4-8".to_string(),
             config: test_agent_config(),
             running_tasks: 0,
             success_rate: Some(0.9),

@@ -456,13 +456,17 @@ class FallbackScheduler:
 
         scheduler = FallbackScheduler()
         agent = scheduler.next_agent("task-1")
-        # "claude_code"
+        # "claude_code@claude-opus-4-8"
         agent = scheduler.next_agent("task-2")
-        # "codex_cli"
+        # "codex_cli@gpt-5-codex"
     """
 
     agents: list[str] = field(
-        default_factory=lambda: ["claude_code", "codex_cli", "aider"]
+        default_factory=lambda: [
+            "claude_code@claude-opus-4-8",
+            "codex_cli@gpt-5-codex",
+            "aider",
+        ]
     )
     _index: int = field(default=0, init=False, repr=False)
 
