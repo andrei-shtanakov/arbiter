@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 -- Registered agents and their current state
 CREATE TABLE IF NOT EXISTS agents (
-    id                TEXT PRIMARY KEY,           -- agent_id "<harness>@<model>", e.g. "claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex" ("aider" has no model suffix)
+    id                TEXT PRIMARY KEY,           -- agent_id; usually "<harness>@<model>" (e.g. "claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex"), harness-only allowed (e.g. "aider")
     display_name      TEXT NOT NULL,
     state             TEXT NOT NULL DEFAULT 'active'
                       CHECK (state IN ('active', 'inactive', 'busy', 'failed')),

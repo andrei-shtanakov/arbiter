@@ -369,10 +369,12 @@ Defines the available coding agents and their capabilities. Each section header
 is the agent's `agent_id` — the opaque routing key used everywhere
 (`preferred_agent`, `chosen_agent`, `report_outcome.agent_id`, `benchmark_runs`).
 
-Since the 2026-06-19 convention change, ids follow `<harness>@<model>` so a model
-is a first-class routing dimension (e.g. one harness running multiple models no
-longer collides). The model id is verbatim and may contain `.`/`-`/`:`; because
-`@` is not allowed in a bare TOML key, the section headers are quoted.
+Since the 2026-06-19 convention change, an id that carries a model dimension uses
+`<harness>@<model>` so the model is a first-class routing key (e.g. one harness
+running multiple models no longer collides). A harness-only id is still valid for
+agents with no model axis — `aider` below has no suffix. The model id is verbatim
+and may contain `.`/`-`/`:`; because `@` is not allowed in a bare TOML key, the
+fused section headers are quoted.
 
 ```toml
 ["claude_code@claude-opus-4-8"]
