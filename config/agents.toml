@@ -1,15 +1,21 @@
-["claude_code@claude-opus-4-8"]
-display_name = "Claude Code"
+# R-07 (sweep-2026-06-21): re-keyed onto the swept models (sonnet-4-6 / gpt-5.5),
+# the only agent_ids with code-review benchmark data in benchmark_runs. Policy
+# fields carried over from the prior opus/gpt-5-codex sections (model-independent);
+# cost/duration are policy values, NOT raw seed (bench n=1 is unrepresentative).
+["claude_code@claude-sonnet-4-6"]
+display_name = "Claude Code (Sonnet 4.6)"
 supports_languages = ["python", "rust", "typescript"]
 supports_types = ["feature", "bugfix", "refactor", "docs", "review", "research"]
 max_concurrent = 2
 cost_per_hour = 0.30
 avg_duration_min = 18.0
 
-["codex_cli@gpt-5-codex"]
-display_name = "Codex CLI"
+["codex_cli@gpt-5.5"]
+display_name = "Codex CLI (GPT-5.5)"
 supports_languages = ["typescript", "go", "python"]
-supports_types = ["feature", "bugfix", "refactor", "test"]
+# "review" added (R-07): without it codex is filtered out of code-review
+# candidates (route_task.rs), making A/B vs claude impossible (one candidate).
+supports_types = ["feature", "bugfix", "refactor", "test", "review"]
 max_concurrent = 3
 cost_per_hour = 0.20
 avg_duration_min = 12.0
