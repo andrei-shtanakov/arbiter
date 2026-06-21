@@ -974,7 +974,7 @@ mod tests {
             task_json: r#"{"type":"bugfix","language":"python","complexity":"simple","priority":"normal"}"#.to_string(),
             feature_vector: "[1.0,0.0,1.0,1.0,1.0,50.0,0.0,0.0,120.0,0.5,2.0,0.0,15.0,0.1,0.0,1.0,1.0,0.0,0.0,10.0,14.0,0.0]".to_string(),
             constraints_json: Some(r#"{"budget_remaining_usd":8.5}"#.to_string()),
-            chosen_agent: "claude_code@claude-opus-4-8".to_string(),
+            chosen_agent: "claude_code@claude-sonnet-4-6".to_string(),
             action: "assign".to_string(),
             confidence: 0.92,
             decision_path: r#"["node 0: feature[2] <= 2.5","leaf: class 0"]"#.to_string(),
@@ -991,7 +991,7 @@ mod tests {
         OutcomeRecord {
             task_id: "task-001".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             status: "success".to_string(),
             duration_min: Some(12.5),
             tokens_used: Some(35000),
@@ -1109,7 +1109,7 @@ mod tests {
                 run_id,
                 payload_version: "1.0.0",
                 benchmark_id: bench,
-                agent_id: "claude_code@claude-opus-4-8",
+                agent_id: "claude_code@claude-sonnet-4-6",
                 ts,
                 score,
                 score_components: "{}",
@@ -1130,13 +1130,13 @@ mod tests {
 
         // latest ts wins within a benchmark
         assert_eq!(
-            db.get_benchmark_score("claude_code@claude-opus-4-8", "code-review")
+            db.get_benchmark_score("claude_code@claude-sonnet-4-6", "code-review")
                 .unwrap(),
             Some(0.80)
         );
         // scoping: a different benchmark_id must not leak
         assert_eq!(
-            db.get_benchmark_score("claude_code@claude-opus-4-8", "docs")
+            db.get_benchmark_score("claude_code@claude-sonnet-4-6", "docs")
                 .unwrap(),
             Some(0.10)
         );
@@ -1180,7 +1180,7 @@ mod tests {
     #[test]
     fn insert_and_query_decision() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         let decision = sample_decision();
         let id = db.insert_decision(&decision).unwrap();
@@ -1191,7 +1191,7 @@ mod tests {
             .unwrap()
             .expect("decision should exist");
         assert_eq!(found.task_id, "task-001");
-        assert_eq!(found.chosen_agent, "claude_code@claude-opus-4-8");
+        assert_eq!(found.chosen_agent, "claude_code@claude-sonnet-4-6");
         assert_eq!(found.action, "assign");
         assert!((found.confidence - 0.92).abs() < f64::EPSILON);
         assert_eq!(found.invariants_passed, 10);
@@ -1209,7 +1209,7 @@ mod tests {
     #[test]
     fn insert_decision_returns_incrementing_ids() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         let mut decision = sample_decision();
         let id1 = db.insert_decision(&decision).unwrap();
@@ -1223,7 +1223,7 @@ mod tests {
     #[test]
     fn insert_outcome_and_update_stats() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         let decision = sample_decision();
         let decision_id = db.insert_decision(&decision).unwrap();
@@ -1232,10 +1232,15 @@ mod tests {
         db.insert_outcome(&outcome).unwrap();
 
         // Update stats for the outcome.
-        db.update_agent_stats("claude_code@claude-opus-4-8", "bugfix", "python", &outcome)
-            .unwrap();
+        db.update_agent_stats(
+            "claude_code@claude-sonnet-4-6",
+            "bugfix",
+            "python",
+            &outcome,
+        )
+        .unwrap();
 
-        let stats = db.get_agent_stats("claude_code@claude-opus-4-8").unwrap();
+        let stats = db.get_agent_stats("claude_code@claude-sonnet-4-6").unwrap();
         assert_eq!(stats.total_tasks, 1);
         assert_eq!(stats.successful_tasks, 1);
         assert_eq!(stats.failed_tasks, 0);
@@ -1248,7 +1253,7 @@ mod tests {
     #[test]
     fn stats_accumulate_across_outcomes() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         let decision = sample_decision();
         let decision_id = db.insert_decision(&decision).unwrap();
@@ -1257,7 +1262,7 @@ mod tests {
         let outcome1 = OutcomeRecord {
             task_id: "task-001".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             status: "success".to_string(),
             duration_min: Some(10.0),
             tokens_used: Some(20000),
@@ -1270,14 +1275,19 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome1).unwrap();
-        db.update_agent_stats("claude_code@claude-opus-4-8", "bugfix", "python", &outcome1)
-            .unwrap();
+        db.update_agent_stats(
+            "claude_code@claude-sonnet-4-6",
+            "bugfix",
+            "python",
+            &outcome1,
+        )
+        .unwrap();
 
         // Failure outcome.
         let outcome2 = OutcomeRecord {
             task_id: "task-002".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             status: "failure".to_string(),
             duration_min: Some(5.0),
             tokens_used: Some(10000),
@@ -1290,10 +1300,15 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome2).unwrap();
-        db.update_agent_stats("claude_code@claude-opus-4-8", "bugfix", "python", &outcome2)
-            .unwrap();
+        db.update_agent_stats(
+            "claude_code@claude-sonnet-4-6",
+            "bugfix",
+            "python",
+            &outcome2,
+        )
+        .unwrap();
 
-        let stats = db.get_agent_stats("claude_code@claude-opus-4-8").unwrap();
+        let stats = db.get_agent_stats("claude_code@claude-sonnet-4-6").unwrap();
         assert_eq!(stats.total_tasks, 2);
         assert_eq!(stats.successful_tasks, 1);
         assert_eq!(stats.failed_tasks, 1);
@@ -1320,7 +1335,7 @@ mod tests {
         // (True concurrent writes require separate connections, tested
         // with file-based DB below.)
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         for i in 0..10 {
             let mut d = sample_decision();
@@ -1346,7 +1361,7 @@ mod tests {
         // Set up schema with first connection.
         let db = Database::open(&db_path).unwrap();
         db.migrate().unwrap();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
         drop(db);
 
         let barrier = Arc::new(Barrier::new(4));
@@ -1384,24 +1399,27 @@ mod tests {
     #[test]
     fn increment_running_tasks() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         assert_eq!(
-            db.get_running_tasks("claude_code@claude-opus-4-8").unwrap(),
+            db.get_running_tasks("claude_code@claude-sonnet-4-6")
+                .unwrap(),
             0
         );
 
-        db.increment_running_tasks("claude_code@claude-opus-4-8")
+        db.increment_running_tasks("claude_code@claude-sonnet-4-6")
             .unwrap();
         assert_eq!(
-            db.get_running_tasks("claude_code@claude-opus-4-8").unwrap(),
+            db.get_running_tasks("claude_code@claude-sonnet-4-6")
+                .unwrap(),
             1
         );
 
-        db.increment_running_tasks("claude_code@claude-opus-4-8")
+        db.increment_running_tasks("claude_code@claude-sonnet-4-6")
             .unwrap();
         assert_eq!(
-            db.get_running_tasks("claude_code@claude-opus-4-8").unwrap(),
+            db.get_running_tasks("claude_code@claude-sonnet-4-6")
+                .unwrap(),
             2
         );
     }
@@ -1409,28 +1427,31 @@ mod tests {
     #[test]
     fn decrement_running_tasks() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
-        db.increment_running_tasks("claude_code@claude-opus-4-8")
+        db.increment_running_tasks("claude_code@claude-sonnet-4-6")
             .unwrap();
-        db.increment_running_tasks("claude_code@claude-opus-4-8")
+        db.increment_running_tasks("claude_code@claude-sonnet-4-6")
             .unwrap();
         assert_eq!(
-            db.get_running_tasks("claude_code@claude-opus-4-8").unwrap(),
+            db.get_running_tasks("claude_code@claude-sonnet-4-6")
+                .unwrap(),
             2
         );
 
-        db.decrement_running_tasks("claude_code@claude-opus-4-8")
+        db.decrement_running_tasks("claude_code@claude-sonnet-4-6")
             .unwrap();
         assert_eq!(
-            db.get_running_tasks("claude_code@claude-opus-4-8").unwrap(),
+            db.get_running_tasks("claude_code@claude-sonnet-4-6")
+                .unwrap(),
             1
         );
 
-        db.decrement_running_tasks("claude_code@claude-opus-4-8")
+        db.decrement_running_tasks("claude_code@claude-sonnet-4-6")
             .unwrap();
         assert_eq!(
-            db.get_running_tasks("claude_code@claude-opus-4-8").unwrap(),
+            db.get_running_tasks("claude_code@claude-sonnet-4-6")
+                .unwrap(),
             0
         );
     }
@@ -1438,16 +1459,18 @@ mod tests {
     #[test]
     fn decrement_running_tasks_floors_at_zero() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         assert_eq!(
-            db.get_running_tasks("claude_code@claude-opus-4-8").unwrap(),
+            db.get_running_tasks("claude_code@claude-sonnet-4-6")
+                .unwrap(),
             0
         );
-        db.decrement_running_tasks("claude_code@claude-opus-4-8")
+        db.decrement_running_tasks("claude_code@claude-sonnet-4-6")
             .unwrap();
         assert_eq!(
-            db.get_running_tasks("claude_code@claude-opus-4-8").unwrap(),
+            db.get_running_tasks("claude_code@claude-sonnet-4-6")
+                .unwrap(),
             0
         );
     }
@@ -1484,7 +1507,7 @@ mod tests {
     #[test]
     fn recent_failures_count() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         let decision = sample_decision();
         let decision_id = db.insert_decision(&decision).unwrap();
@@ -1493,7 +1516,7 @@ mod tests {
         let outcome = OutcomeRecord {
             task_id: "task-fail".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             status: "failure".to_string(),
             duration_min: Some(5.0),
             tokens_used: None,
@@ -1511,7 +1534,7 @@ mod tests {
         let timeout = OutcomeRecord {
             task_id: "task-timeout".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             status: "timeout".to_string(),
             duration_min: Some(60.0),
             tokens_used: None,
@@ -1530,7 +1553,7 @@ mod tests {
         db.insert_outcome(&success).unwrap();
 
         let failures = db
-            .get_recent_failures("claude_code@claude-opus-4-8", 24)
+            .get_recent_failures("claude_code@claude-sonnet-4-6", 24)
             .unwrap();
         assert_eq!(failures, 2);
     }
@@ -1538,9 +1561,9 @@ mod tests {
     #[test]
     fn recent_failures_zero_for_no_failures() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
         let failures = db
-            .get_recent_failures("claude_code@claude-opus-4-8", 24)
+            .get_recent_failures("claude_code@claude-sonnet-4-6", 24)
             .unwrap();
         assert_eq!(failures, 0);
     }
@@ -1578,19 +1601,19 @@ mod tests {
     #[test]
     fn decision_with_fallback() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
-        insert_test_agent(&db, "codex_cli@gpt-5-codex");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
+        insert_test_agent(&db, "codex_cli@gpt-5.5");
 
         let decision = DecisionRecord {
             task_id: "task-fallback".to_string(),
             task_json: "{}".to_string(),
             feature_vector: "[]".to_string(),
             constraints_json: None,
-            chosen_agent: "codex_cli@gpt-5-codex".to_string(),
+            chosen_agent: "codex_cli@gpt-5.5".to_string(),
             action: "fallback".to_string(),
             confidence: 0.75,
             decision_path: "[]".to_string(),
-            fallback_agent: Some("claude_code@claude-opus-4-8".to_string()),
+            fallback_agent: Some("claude_code@claude-sonnet-4-6".to_string()),
             fallback_reason: Some("agent_available: Critical failure".to_string()),
             invariants_json: "[]".to_string(),
             invariants_passed: 8,
@@ -1605,7 +1628,7 @@ mod tests {
         assert_eq!(found.action, "fallback");
         assert_eq!(
             found.fallback_agent,
-            Some("claude_code@claude-opus-4-8".to_string())
+            Some("claude_code@claude-sonnet-4-6".to_string())
         );
         assert_eq!(
             found.fallback_reason,
@@ -1620,7 +1643,7 @@ mod tests {
     #[test]
     fn purge_older_than_deletes_old_records() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         let decision = sample_decision();
         let decision_id = db.insert_decision(&decision).unwrap();
@@ -1661,7 +1684,7 @@ mod tests {
     #[test]
     fn purge_older_than_keeps_recent() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         let decision = sample_decision();
         let decision_id = db.insert_decision(&decision).unwrap();
@@ -1697,7 +1720,7 @@ mod tests {
     #[test]
     fn stats_aggregate_across_types_and_languages() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         let decision = sample_decision();
         let decision_id = db.insert_decision(&decision).unwrap();
@@ -1705,7 +1728,7 @@ mod tests {
         let outcome1 = OutcomeRecord {
             task_id: "t1".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             status: "success".to_string(),
             duration_min: Some(10.0),
             tokens_used: Some(1000),
@@ -1718,13 +1741,18 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome1).unwrap();
-        db.update_agent_stats("claude_code@claude-opus-4-8", "bugfix", "python", &outcome1)
-            .unwrap();
+        db.update_agent_stats(
+            "claude_code@claude-sonnet-4-6",
+            "bugfix",
+            "python",
+            &outcome1,
+        )
+        .unwrap();
 
         let outcome2 = OutcomeRecord {
             task_id: "t2".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             status: "success".to_string(),
             duration_min: Some(20.0),
             tokens_used: Some(2000),
@@ -1737,11 +1765,16 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome2).unwrap();
-        db.update_agent_stats("claude_code@claude-opus-4-8", "feature", "rust", &outcome2)
-            .unwrap();
+        db.update_agent_stats(
+            "claude_code@claude-sonnet-4-6",
+            "feature",
+            "rust",
+            &outcome2,
+        )
+        .unwrap();
 
         // get_agent_stats should aggregate across both rows.
-        let stats = db.get_agent_stats("claude_code@claude-opus-4-8").unwrap();
+        let stats = db.get_agent_stats("claude_code@claude-sonnet-4-6").unwrap();
         assert_eq!(stats.total_tasks, 2);
         assert_eq!(stats.successful_tasks, 2);
         assert!((stats.avg_duration_min - 15.0).abs() < f64::EPSILON);
@@ -1761,8 +1794,8 @@ mod tests {
     #[test]
     fn get_total_cost_with_data() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
-        insert_test_agent(&db, "codex_cli@gpt-5-codex");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
+        insert_test_agent(&db, "codex_cli@gpt-5.5");
 
         let decision = sample_decision();
         let decision_id = db.insert_decision(&decision).unwrap();
@@ -1770,7 +1803,7 @@ mod tests {
         let outcome1 = OutcomeRecord {
             task_id: "t-cost-1".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             status: "success".to_string(),
             duration_min: Some(10.0),
             tokens_used: Some(1000),
@@ -1783,13 +1816,18 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome1).unwrap();
-        db.update_agent_stats("claude_code@claude-opus-4-8", "bugfix", "python", &outcome1)
-            .unwrap();
+        db.update_agent_stats(
+            "claude_code@claude-sonnet-4-6",
+            "bugfix",
+            "python",
+            &outcome1,
+        )
+        .unwrap();
 
         let outcome2 = OutcomeRecord {
             task_id: "t-cost-2".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "codex_cli@gpt-5-codex".to_string(),
+            agent_id: "codex_cli@gpt-5.5".to_string(),
             status: "success".to_string(),
             duration_min: Some(5.0),
             tokens_used: Some(500),
@@ -1802,7 +1840,7 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome2).unwrap();
-        db.update_agent_stats("codex_cli@gpt-5-codex", "feature", "rust", &outcome2)
+        db.update_agent_stats("codex_cli@gpt-5.5", "feature", "rust", &outcome2)
             .unwrap();
 
         let total = db.get_total_cost().unwrap();
@@ -1812,7 +1850,7 @@ mod tests {
     #[test]
     fn get_cost_by_agent_returns_per_agent() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
 
         let decision = sample_decision();
         let decision_id = db.insert_decision(&decision).unwrap();
@@ -1820,7 +1858,7 @@ mod tests {
         let outcome = OutcomeRecord {
             task_id: "t-agent-cost".to_string(),
             decision_id: Some(decision_id),
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             status: "success".to_string(),
             duration_min: Some(8.0),
             tokens_used: Some(2000),
@@ -1833,13 +1871,18 @@ mod tests {
             retry_count: 0,
         };
         db.insert_outcome(&outcome).unwrap();
-        db.update_agent_stats("claude_code@claude-opus-4-8", "bugfix", "python", &outcome)
-            .unwrap();
+        db.update_agent_stats(
+            "claude_code@claude-sonnet-4-6",
+            "bugfix",
+            "python",
+            &outcome,
+        )
+        .unwrap();
 
         let breakdown = db.get_cost_by_agent().unwrap();
         assert_eq!(breakdown.len(), 1);
         let (agent_id, cost, tasks) = &breakdown[0];
-        assert_eq!(agent_id, "claude_code@claude-opus-4-8");
+        assert_eq!(agent_id, "claude_code@claude-sonnet-4-6");
         assert!((cost - 0.42).abs() < f64::EPSILON);
         assert_eq!(*tasks, 1);
     }

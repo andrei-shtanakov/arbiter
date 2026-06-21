@@ -48,13 +48,13 @@ pub fn evaluate_for_agents(
 mod tests {
     use super::*;
 
-    /// Build a 3-class tree (claude_code@claude-opus-4-8=0, codex_cli@gpt-5-codex=1, aider=2) that
+    /// Build a 3-class tree (claude_code@claude-sonnet-4-6=0, codex_cli@gpt-5.5=1, aider=2) that
     /// routes based on complexity (feature[2]) and task_type (feature[0]).
     fn test_tree_json() -> String {
         serde_json::json!({
             "n_features": 22,
             "n_classes": 3,
-            "class_names": ["claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex", "aider"],
+            "class_names": ["claude_code@claude-sonnet-4-6", "codex_cli@gpt-5.5", "aider"],
             "feature_names": [
                 "task_type", "language", "complexity", "priority",
                 "scope_size", "estimated_tokens", "has_dependencies",
@@ -74,7 +74,7 @@ mod tests {
                 // node 1 (low complexity): aider
                 {"feature": -1, "threshold": 0.0, "left": -1, "right": -1,
                  "value": [1.0, 2.0, 7.0]},
-                // node 2 (high complexity): claude_code@claude-opus-4-8
+                // node 2 (high complexity): claude_code@claude-sonnet-4-6
                 {"feature": -1, "threshold": 0.0, "left": -1, "right": -1,
                  "value": [8.0, 1.0, 1.0]}
             ]
@@ -100,7 +100,7 @@ mod tests {
         // Two agents: one with low-complexity features, one with high
         let vectors = vec![
             (
-                "claude_code@claude-opus-4-8".to_string(),
+                "claude_code@claude-sonnet-4-6".to_string(),
                 make_features(3.0),
             ), // complex
             ("aider".to_string(), make_features(1.0)), // simple
@@ -109,9 +109,9 @@ mod tests {
         let results = evaluate_for_agents(&tree, &vectors);
         assert_eq!(results.len(), 2);
         // Both should have confidence 0.8 (8/10 or 7/10)
-        // claude_code@claude-opus-4-8: complexity 3.0 > 2.5 -> right -> class 0 (8/10=0.8)
+        // claude_code@claude-sonnet-4-6: complexity 3.0 > 2.5 -> right -> class 0 (8/10=0.8)
         // aider: complexity 1.0 <= 2.5 -> left -> class 2 (7/10=0.7)
-        assert_eq!(results[0].0, "claude_code@claude-opus-4-8");
+        assert_eq!(results[0].0, "claude_code@claude-sonnet-4-6");
         assert!(results[0].1.confidence >= results[1].1.confidence);
     }
 
@@ -125,10 +125,10 @@ mod tests {
     #[test]
     fn evaluate_single_candidate() {
         let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
-        let vectors = vec![("codex_cli@gpt-5-codex".to_string(), make_features(1.0))];
+        let vectors = vec![("codex_cli@gpt-5.5".to_string(), make_features(1.0))];
         let results = evaluate_for_agents(&tree, &vectors);
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, "codex_cli@gpt-5-codex");
+        assert_eq!(results[0].0, "codex_cli@gpt-5.5");
     }
 
     #[test]
@@ -155,10 +155,10 @@ mod tests {
         let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
         let vectors = vec![
             (
-                "claude_code@claude-opus-4-8".to_string(),
+                "claude_code@claude-sonnet-4-6".to_string(),
                 make_features(3.0),
             ),
-            ("codex_cli@gpt-5-codex".to_string(), make_features(2.0)),
+            ("codex_cli@gpt-5.5".to_string(), make_features(2.0)),
             ("aider".to_string(), make_features(1.0)),
         ];
 

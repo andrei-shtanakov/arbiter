@@ -671,11 +671,17 @@ mod tests {
     #[test]
     fn benchmark_weight_reranks_review_by_per_agent_score() {
         // Two agents that both support Review; aider leads on base confidence.
-        // weight=0 leaves the base order; weight=0.15 lets claude_code@claude-opus-4-8's higher
+        // weight=0 leaves the base order; weight=0.15 lets claude_code@claude-sonnet-4-6's higher
         // code-review score (0.90 vs 0.20) overtake aider.
         let db = Database::open_in_memory().unwrap();
         db.migrate().unwrap();
-        seed_bench(&db, "a", "claude_code@claude-opus-4-8", "code-review", 0.90);
+        seed_bench(
+            &db,
+            "a",
+            "claude_code@claude-sonnet-4-6",
+            "code-review",
+            0.90,
+        );
         seed_bench(&db, "b", "aider", "code-review", 0.20);
 
         let mk = |conf: f64| PredictionResult {
@@ -686,7 +692,7 @@ mod tests {
         let base = || {
             vec![
                 ("aider".to_string(), mk(0.55)),
-                ("claude_code@claude-opus-4-8".to_string(), mk(0.50)),
+                ("claude_code@claude-sonnet-4-6".to_string(), mk(0.50)),
             ]
         };
 
@@ -696,17 +702,17 @@ mod tests {
 
         let mut w15 = base();
         apply_benchmark_rerank(&mut w15, &TaskType::Review, &db, 0.15).unwrap();
-        // claude_code@claude-opus-4-8: 0.50 + (0.90-0.5)*0.15 = 0.56 ; aider: 0.55 + (0.20-0.5)*0.15 = 0.505
+        // claude_code@claude-sonnet-4-6: 0.50 + (0.90-0.5)*0.15 = 0.56 ; aider: 0.55 + (0.20-0.5)*0.15 = 0.505
         assert_eq!(
-            w15[0].0, "claude_code@claude-opus-4-8",
-            "high code-review score promotes claude_code@claude-opus-4-8"
+            w15[0].0, "claude_code@claude-sonnet-4-6",
+            "high code-review score promotes claude_code@claude-sonnet-4-6"
         );
         assert!(
             w15[0]
                 .1
                 .path
                 .iter()
-                .any(|s| s.starts_with("bench_adjust[claude_code@claude-opus-4-8]")),
+                .any(|s| s.starts_with("bench_adjust[claude_code@claude-sonnet-4-6]")),
             "audit line lands on the adjusted prediction's path"
         );
     }
@@ -715,7 +721,13 @@ mod tests {
     fn benchmark_rerank_is_noop_without_mapping_or_weight() {
         let db = Database::open_in_memory().unwrap();
         db.migrate().unwrap();
-        seed_bench(&db, "a", "claude_code@claude-opus-4-8", "code-review", 0.90);
+        seed_bench(
+            &db,
+            "a",
+            "claude_code@claude-sonnet-4-6",
+            "code-review",
+            0.90,
+        );
 
         let mk = |conf: f64| PredictionResult {
             class: 0,
@@ -723,13 +735,13 @@ mod tests {
             path: vec![],
         };
         // Docs has no mapped benchmark -> untouched even with weight on.
-        let mut docs = vec![("claude_code@claude-opus-4-8".to_string(), mk(0.50))];
+        let mut docs = vec![("claude_code@claude-sonnet-4-6".to_string(), mk(0.50))];
         apply_benchmark_rerank(&mut docs, &TaskType::Docs, &db, 0.15).unwrap();
         assert_eq!(docs[0].1.confidence, 0.50);
         assert!(docs[0].1.path.is_empty());
 
         // Review with weight 0 -> untouched (regression guard for the default).
-        let mut review = vec![("claude_code@claude-opus-4-8".to_string(), mk(0.50))];
+        let mut review = vec![("claude_code@claude-sonnet-4-6".to_string(), mk(0.50))];
         apply_benchmark_rerank(&mut review, &TaskType::Review, &db, 0.0).unwrap();
         assert_eq!(review[0].1.confidence, 0.50);
         assert!(review[0].1.path.is_empty());
@@ -739,7 +751,7 @@ mod tests {
         serde_json::json!({
             "n_features": 22,
             "n_classes": 3,
-            "class_names": ["claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex", "aider"],
+            "class_names": ["claude_code@claude-sonnet-4-6", "codex_cli@gpt-5.5", "aider"],
             "feature_names": [
                 "task_type", "language", "complexity", "priority",
                 "scope_size", "estimated_tokens", "has_dependencies",
@@ -771,7 +783,7 @@ mod tests {
     fn test_agents() -> HashMap<String, AgentConfig> {
         let mut agents = HashMap::new();
         agents.insert(
-            "claude_code@claude-opus-4-8".to_string(),
+            "claude_code@claude-sonnet-4-6".to_string(),
             AgentConfig {
                 display_name: "Claude Code".to_string(),
                 supports_languages: vec![
@@ -792,7 +804,7 @@ mod tests {
             },
         );
         agents.insert(
-            "codex_cli@gpt-5-codex".to_string(),
+            "codex_cli@gpt-5.5".to_string(),
             AgentConfig {
                 display_name: "Codex CLI".to_string(),
                 supports_languages: vec![
@@ -929,8 +941,8 @@ mod tests {
         let task = simple_task();
         let constraints = Constraints {
             excluded_agents: vec![
-                "claude_code@claude-opus-4-8".to_string(),
-                "codex_cli@gpt-5-codex".to_string(),
+                "claude_code@claude-sonnet-4-6".to_string(),
+                "codex_cli@gpt-5.5".to_string(),
                 "aider".to_string(),
             ],
             ..empty_constraints()
@@ -961,7 +973,7 @@ mod tests {
 
         let task = simple_task();
         let constraints = Constraints {
-            preferred_agent: Some("codex_cli@gpt-5-codex".to_string()),
+            preferred_agent: Some("codex_cli@gpt-5.5".to_string()),
             ..empty_constraints()
         };
 
@@ -1043,7 +1055,7 @@ mod tests {
         let result = RouteResult {
             task_id: "t1".to_string(),
             action: AgentAction::Assign,
-            chosen_agent: "claude_code@claude-opus-4-8".to_string(),
+            chosen_agent: "claude_code@claude-sonnet-4-6".to_string(),
             confidence: 0.85,
             reasoning: "test".to_string(),
             decision_path: vec!["step1".to_string()],
@@ -1065,7 +1077,7 @@ mod tests {
         let json = result_to_json(&result);
         assert_eq!(json["task_id"], "t1");
         assert_eq!(json["action"], "assign");
-        assert_eq!(json["chosen_agent"], "claude_code@claude-opus-4-8");
+        assert_eq!(json["chosen_agent"], "claude_code@claude-sonnet-4-6");
         assert_eq!(json["confidence"], 0.85);
         assert!(json["invariant_checks"].as_array().unwrap().len() == 1);
         assert_eq!(json["metadata"]["decision_id"], 7);
@@ -1421,8 +1433,8 @@ mod tests {
         let constraints = Constraints {
             preferred_agent: None,
             excluded_agents: vec![
-                "claude_code@claude-opus-4-8".to_string(),
-                "codex_cli@gpt-5-codex".to_string(),
+                "claude_code@claude-sonnet-4-6".to_string(),
+                "codex_cli@gpt-5.5".to_string(),
                 "aider".to_string(),
             ],
             budget_remaining_usd: Some(10.0),
@@ -1538,8 +1550,8 @@ mod tests {
 
         // Chosen agent should be one of the configured agents
         let valid_agents = [
-            "claude_code@claude-opus-4-8",
-            "codex_cli@gpt-5-codex",
+            "claude_code@claude-sonnet-4-6",
+            "codex_cli@gpt-5.5",
             "aider",
         ];
         assert!(
@@ -1762,7 +1774,7 @@ mod tests {
         let result = RouteResult {
             task_id: "w1".to_string(),
             action: AgentAction::Assign,
-            chosen_agent: "claude_code@claude-opus-4-8".to_string(),
+            chosen_agent: "claude_code@claude-sonnet-4-6".to_string(),
             confidence: 0.8,
             reasoning: "test".to_string(),
             decision_path: vec!["round-robin fallback (no decision tree)".to_string()],

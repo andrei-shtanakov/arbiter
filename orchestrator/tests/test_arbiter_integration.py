@@ -252,6 +252,42 @@ async def test_pt07_large_batch(client: ArbiterClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# PT-08: report_benchmark ingest + idempotency
+# ---------------------------------------------------------------------------
+
+
+def _minimal_benchmark_payload(run_id: str) -> dict:
+    """Return a minimal valid report_benchmark payload (payload_version 1.0.0)."""
+    return {
+        "payload_version": "1.0.0",
+        "run_id": run_id,
+        "benchmark_id": "code-review",
+        "agent_id": "claude_code@claude-sonnet-4-6",
+        "ts": "2026-06-21T00:00:00+00:00",
+        "score": 0.8,
+        "score_components": {"critical_pass_rate": 0.8},
+        "duration_seconds": 10.0,
+        "per_task": [],
+        "per_task_total_count": 0,
+        "per_task_truncated": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_pt08_report_benchmark(client: ArbiterClient) -> None:
+    """PT-08: report_benchmark persists a run and is idempotent by run_id."""
+    payload = _minimal_benchmark_payload("pt08-run-1")
+
+    created = await client.report_benchmark(payload)
+    assert created["status"] == "created"
+    assert created["run_id"] == "pt08-run-1"
+
+    # Same run_id again -> duplicate, not an error.
+    duplicate = await client.report_benchmark(payload)
+    assert duplicate["status"] == "duplicate"
+
+
+# ---------------------------------------------------------------------------
 # FallbackScheduler tests
 # ---------------------------------------------------------------------------
 
@@ -261,11 +297,11 @@ def test_fallback_scheduler_round_robin() -> None:
     scheduler = FallbackScheduler()
     agents = [scheduler.next_agent(f"t{i}") for i in range(6)]
     assert agents == [
-        "claude_code@claude-opus-4-8",
-        "codex_cli@gpt-5-codex",
+        "claude_code@claude-sonnet-4-6",
+        "codex_cli@gpt-5.5",
         "aider",
-        "claude_code@claude-opus-4-8",
-        "codex_cli@gpt-5-codex",
+        "claude_code@claude-sonnet-4-6",
+        "codex_cli@gpt-5.5",
         "aider",
     ]
 
@@ -276,7 +312,7 @@ def test_fallback_scheduler_reset() -> None:
     scheduler.next_agent("t0")
     scheduler.next_agent("t1")
     scheduler.reset()
-    assert scheduler.next_agent("t2") == "claude_code@claude-opus-4-8"
+    assert scheduler.next_agent("t2") == "claude_code@claude-sonnet-4-6"
 
 
 def test_fallback_scheduler_custom_agents() -> None:

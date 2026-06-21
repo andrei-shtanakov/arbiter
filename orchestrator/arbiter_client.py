@@ -185,6 +185,19 @@ class ArbiterClient:
         }
         return await self._call_tool("report_outcome", arguments)
 
+    async def report_benchmark(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Persist an ATP benchmark payload into the benchmark_runs table.
+
+        Args:
+            payload: A full report_benchmark payload (payload_version 1.0.0)
+                with run_id, benchmark_id, agent_id, score, score_components,
+                duration_seconds, per_task, etc.
+
+        Returns:
+            Result dict with status ("created" | "duplicate") and run_id.
+        """
+        return await self._call_tool("report_benchmark", payload)
+
     async def get_agent_status(
         self,
         agent_id: str | None = None,
@@ -456,15 +469,15 @@ class FallbackScheduler:
 
         scheduler = FallbackScheduler()
         agent = scheduler.next_agent("task-1")
-        # "claude_code@claude-opus-4-8"
+        # "claude_code@claude-sonnet-4-6"
         agent = scheduler.next_agent("task-2")
-        # "codex_cli@gpt-5-codex"
+        # "codex_cli@gpt-5.5"
     """
 
     agents: list[str] = field(
         default_factory=lambda: [
-            "claude_code@claude-opus-4-8",
-            "codex_cli@gpt-5-codex",
+            "claude_code@claude-sonnet-4-6",
+            "codex_cli@gpt-5.5",
             "aider",
         ]
     )

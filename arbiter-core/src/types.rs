@@ -620,13 +620,13 @@ mod tests {
     #[test]
     fn constraints_serialize_roundtrip() {
         let constraints = Constraints {
-            preferred_agent: Some("claude_code@claude-opus-4-8".to_string()),
+            preferred_agent: Some("claude_code@claude-sonnet-4-6".to_string()),
             excluded_agents: vec!["aider".to_string()],
             budget_remaining_usd: Some(8.50),
             total_pending_tasks: Some(3),
             running_tasks: vec![RunningTask {
                 task_id: "task-42".to_string(),
-                agent_id: "codex_cli@gpt-5-codex".to_string(),
+                agent_id: "codex_cli@gpt-5.5".to_string(),
                 scope: vec!["src/".to_string()],
                 branch: Some("fix/bug-42".to_string()),
             }],
@@ -655,7 +655,7 @@ mod tests {
     fn running_task_serialize_roundtrip() {
         let rt = RunningTask {
             task_id: "task-1".to_string(),
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             scope: vec!["src/main.rs".to_string()],
             branch: Some("main".to_string()),
         };
