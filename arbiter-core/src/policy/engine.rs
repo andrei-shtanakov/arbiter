@@ -34,11 +34,13 @@ pub fn evaluate_for_agents(
         })
         .collect();
 
-    // Sort by confidence descending (stable sort preserves order for equal confidence)
+    // Sort by confidence descending, breaking ties by agent_id ascending so the
+    // ranking is deterministic regardless of the (HashMap-derived) input order.
     results.sort_by(|a, b| {
         b.1.confidence
             .partial_cmp(&a.1.confidence)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
     });
 
     results
@@ -148,6 +150,26 @@ mod tests {
         let results = evaluate_for_agents(&tree, &vectors);
         assert_eq!(results.len(), 1, "bad agent should be filtered out");
         assert_eq!(results[0].0, "good_agent");
+    }
+
+    #[test]
+    fn evaluate_breaks_ties_deterministically_by_agent_id() {
+        let tree = DecisionTree::from_json(&test_tree_json()).unwrap();
+        // Identical features -> same leaf -> equal confidence (a tie).
+        let f = make_features(3.0);
+
+        let order1 = vec![("zzz_agent".to_string(), f), ("aaa_agent".to_string(), f)];
+        let order2 = vec![("aaa_agent".to_string(), f), ("zzz_agent".to_string(), f)];
+
+        let r1 = evaluate_for_agents(&tree, &order1);
+        let r2 = evaluate_for_agents(&tree, &order2);
+
+        // Confidences are tied, so ranking must not depend on input order.
+        assert_eq!(r1[0].1.confidence, r1[1].1.confidence, "precondition: tie");
+        assert_eq!(r1[0].0, r2[0].0, "winner must be order-independent");
+        // Tie broken by agent_id ascending.
+        assert_eq!(r1[0].0, "aaa_agent");
+        assert_eq!(r1[1].0, "zzz_agent");
     }
 
     #[test]
