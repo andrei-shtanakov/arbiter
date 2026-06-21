@@ -261,11 +261,11 @@ def test_fallback_scheduler_round_robin() -> None:
     scheduler = FallbackScheduler()
     agents = [scheduler.next_agent(f"t{i}") for i in range(6)]
     assert agents == [
-        "claude_code@claude-opus-4-8",
-        "codex_cli@gpt-5-codex",
+        "claude_code@claude-sonnet-4-6",
+        "codex_cli@gpt-5.5",
         "aider",
-        "claude_code@claude-opus-4-8",
-        "codex_cli@gpt-5-codex",
+        "claude_code@claude-sonnet-4-6",
+        "codex_cli@gpt-5.5",
         "aider",
     ]
 
@@ -276,7 +276,7 @@ def test_fallback_scheduler_reset() -> None:
     scheduler.next_agent("t0")
     scheduler.next_agent("t1")
     scheduler.reset()
-    assert scheduler.next_agent("t2") == "claude_code@claude-opus-4-8"
+    assert scheduler.next_agent("t2") == "claude_code@claude-sonnet-4-6"
 
 
 def test_fallback_scheduler_custom_agents() -> None:

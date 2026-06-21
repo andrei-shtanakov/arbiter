@@ -935,7 +935,7 @@ mod tests {
     fn test_config() -> ArbiterConfig {
         let mut agents = HashMap::new();
         agents.insert(
-            "claude_code@claude-opus-4-8".to_string(),
+            "claude_code@claude-sonnet-4-6".to_string(),
             AgentConfig {
                 display_name: "Claude Code".to_string(),
                 supports_languages: vec!["python".to_string(), "rust".to_string()],
@@ -972,7 +972,7 @@ mod tests {
         serde_json::json!({
             "n_features": 22,
             "n_classes": 3,
-            "class_names": ["claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex", "aider"],
+            "class_names": ["claude_code@claude-sonnet-4-6", "codex_cli@gpt-5.5", "aider"],
             "feature_names": [
                 "task_type", "language", "complexity", "priority",
                 "scope_size", "estimated_tokens", "has_dependencies",
@@ -1218,7 +1218,7 @@ mod tests {
         let mut server = make_server(db, Some(tree), config);
         let resp = dispatch(
             &mut server,
-            r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"report_outcome","arguments":{"task_id":"t1","agent_id":"claude_code@claude-opus-4-8","status":"success"}}}"#,
+            r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"report_outcome","arguments":{"task_id":"t1","agent_id":"claude_code@claude-sonnet-4-6","status":"success"}}}"#,
         )
         .unwrap();
 

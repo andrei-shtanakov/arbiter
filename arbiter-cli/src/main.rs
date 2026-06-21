@@ -46,7 +46,7 @@ fn load_bootstrap_tree() -> DecisionTree {
 fn bench_agents() -> HashMap<String, AgentConfig> {
     let mut agents = HashMap::new();
     agents.insert(
-        "claude_code@claude-opus-4-8".to_string(),
+        "claude_code@claude-sonnet-4-6".to_string(),
         AgentConfig {
             display_name: "Claude Code".to_string(),
             supports_languages: vec![
@@ -67,7 +67,7 @@ fn bench_agents() -> HashMap<String, AgentConfig> {
         },
     );
     agents.insert(
-        "codex_cli@gpt-5-codex".to_string(),
+        "codex_cli@gpt-5.5".to_string(),
         AgentConfig {
             display_name: "Codex CLI".to_string(),
             supports_languages: vec![
@@ -206,8 +206,8 @@ fn bench_route_throughput() -> Result<()> {
             &arbiter_mcp::metrics::Metrics::new(),
         );
         // Reset running tasks for warmup
-        let _ = db.decrement_running_tasks("claude_code@claude-opus-4-8");
-        let _ = db.decrement_running_tasks("codex_cli@gpt-5-codex");
+        let _ = db.decrement_running_tasks("claude_code@claude-sonnet-4-6");
+        let _ = db.decrement_running_tasks("codex_cli@gpt-5.5");
         let _ = db.decrement_running_tasks("aider");
     }
 
@@ -225,8 +225,8 @@ fn bench_route_throughput() -> Result<()> {
             &arbiter_mcp::metrics::Metrics::new(),
         )?;
         // Don't accumulate running tasks (would exhaust slots quickly)
-        let _ = db.decrement_running_tasks("claude_code@claude-opus-4-8");
-        let _ = db.decrement_running_tasks("codex_cli@gpt-5-codex");
+        let _ = db.decrement_running_tasks("claude_code@claude-sonnet-4-6");
+        let _ = db.decrement_running_tasks("codex_cli@gpt-5.5");
         let _ = db.decrement_running_tasks("aider");
     }
     let elapsed = start.elapsed();
@@ -321,8 +321,8 @@ fn bench_route_latency_p99() -> Result<()> {
         latencies_us.push(elapsed.as_micros());
 
         // Reset running tasks
-        let _ = db.decrement_running_tasks("claude_code@claude-opus-4-8");
-        let _ = db.decrement_running_tasks("codex_cli@gpt-5-codex");
+        let _ = db.decrement_running_tasks("claude_code@claude-sonnet-4-6");
+        let _ = db.decrement_running_tasks("codex_cli@gpt-5.5");
         let _ = db.decrement_running_tasks("aider");
     }
 
@@ -361,8 +361,8 @@ fn bench_report_latency_p99() -> Result<()> {
     let n = 100;
     let mut latencies_us = Vec::with_capacity(n);
     let agent_ids = [
-        "claude_code@claude-opus-4-8",
-        "codex_cli@gpt-5-codex",
+        "claude_code@claude-sonnet-4-6",
+        "codex_cli@gpt-5.5",
         "aider",
     ];
 
@@ -469,8 +469,8 @@ fn bench_memory_usage() -> Result<()> {
     };
 
     let agent_ids = [
-        "claude_code@claude-opus-4-8",
-        "codex_cli@gpt-5-codex",
+        "claude_code@claude-sonnet-4-6",
+        "codex_cli@gpt-5.5",
         "aider",
     ];
 
@@ -512,8 +512,8 @@ fn bench_memory_usage() -> Result<()> {
         let _ = arbiter_mcp::tools::report_outcome::execute(&args, &db, &config)?;
 
         // Reset running tasks to avoid slot exhaustion
-        let _ = db.decrement_running_tasks("claude_code@claude-opus-4-8");
-        let _ = db.decrement_running_tasks("codex_cli@gpt-5-codex");
+        let _ = db.decrement_running_tasks("claude_code@claude-sonnet-4-6");
+        let _ = db.decrement_running_tasks("codex_cli@gpt-5.5");
         let _ = db.decrement_running_tasks("aider");
     }
 
@@ -549,8 +549,8 @@ fn bench_sqlite_size() -> Result<()> {
     let _registry = AgentRegistry::new(Arc::clone(&db), &agents)?;
 
     let agent_ids = [
-        "claude_code@claude-opus-4-8",
-        "codex_cli@gpt-5-codex",
+        "claude_code@claude-sonnet-4-6",
+        "codex_cli@gpt-5.5",
         "aider",
     ];
     let n = 10_000;
@@ -593,7 +593,7 @@ fn bench_sqlite_size() -> Result<()> {
             confidence: 0.70 + (i as f64 % 30.0) / 100.0,
             decision_path: r#"["node 0: feature[2] <= 2.5","leaf: class 0"]"#.to_string(),
             fallback_agent: if i % 20 == 0 {
-                Some("codex_cli@gpt-5-codex".to_string())
+                Some("codex_cli@gpt-5.5".to_string())
             } else {
                 None
             },

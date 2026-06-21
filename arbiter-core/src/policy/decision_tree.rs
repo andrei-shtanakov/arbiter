@@ -57,7 +57,7 @@ impl DecisionTree {
     /// {
     ///   "n_features": 22,
     ///   "n_classes": 3,
-    ///   "class_names": ["claude_code@claude-opus-4-8", "codex_cli@gpt-5-codex", "aider"],
+    ///   "class_names": ["claude_code@claude-sonnet-4-6", "codex_cli@gpt-5.5", "aider"],
     ///   "feature_names": ["task_type", "language", ...],
     ///   "nodes": [
     ///     {"feature": 2, "threshold": 2.5, "left": 1, "right": 2, "value": [100, 50, 30]},
@@ -550,8 +550,8 @@ mod tests {
         assert_eq!(
             tree.class_names(),
             &[
-                "claude_code@claude-opus-4-8",
-                "codex_cli@gpt-5-codex",
+                "claude_code@claude-sonnet-4-6",
+                "codex_cli@gpt-5.5",
                 "aider"
             ]
         );

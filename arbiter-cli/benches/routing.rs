@@ -42,7 +42,7 @@ fn load_bootstrap_tree() -> DecisionTree {
 fn bench_agents() -> HashMap<String, AgentConfig> {
     let mut agents = HashMap::new();
     agents.insert(
-        "claude_code@claude-opus-4-8".to_string(),
+        "claude_code@claude-sonnet-4-6".to_string(),
         AgentConfig {
             display_name: "Claude Code".to_string(),
             supports_languages: vec![
@@ -63,7 +63,7 @@ fn bench_agents() -> HashMap<String, AgentConfig> {
         },
     );
     agents.insert(
-        "codex_cli@gpt-5-codex".to_string(),
+        "codex_cli@gpt-5.5".to_string(),
         AgentConfig {
             display_name: "Codex CLI".to_string(),
             supports_languages: vec![

@@ -469,15 +469,15 @@ class FallbackScheduler:
 
         scheduler = FallbackScheduler()
         agent = scheduler.next_agent("task-1")
-        # "claude_code@claude-opus-4-8"
+        # "claude_code@claude-sonnet-4-6"
         agent = scheduler.next_agent("task-2")
-        # "codex_cli@gpt-5-codex"
+        # "codex_cli@gpt-5.5"
     """
 
     agents: list[str] = field(
         default_factory=lambda: [
-            "claude_code@claude-opus-4-8",
-            "codex_cli@gpt-5-codex",
+            "claude_code@claude-sonnet-4-6",
+            "codex_cli@gpt-5.5",
             "aider",
         ]
     )

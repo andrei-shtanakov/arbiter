@@ -15,7 +15,7 @@ use crate::types::{AgentState, InvariantResult, Severity, TaskInput};
 /// Agent information needed for invariant checks.
 #[derive(Debug, Clone)]
 pub struct AgentContext {
-    /// Agent identifier (e.g. "claude_code@claude-opus-4-8").
+    /// Agent identifier (e.g. "claude_code@claude-sonnet-4-6").
     pub agent_id: String,
     /// Current lifecycle state.
     pub state: AgentState,
@@ -470,7 +470,7 @@ mod tests {
 
     fn active_agent() -> AgentContext {
         AgentContext {
-            agent_id: "claude_code@claude-opus-4-8".to_string(),
+            agent_id: "claude_code@claude-sonnet-4-6".to_string(),
             state: AgentState::Active,
             running_tasks: 0,
             max_concurrent: 2,

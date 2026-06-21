@@ -232,7 +232,7 @@ mod tests {
     fn test_config() -> ArbiterConfig {
         let mut agents = HashMap::new();
         agents.insert(
-            "claude_code@claude-opus-4-8".to_string(),
+            "claude_code@claude-sonnet-4-6".to_string(),
             AgentConfig {
                 display_name: "Claude Code".to_string(),
                 supports_languages: vec!["python".to_string(), "rust".to_string()],
@@ -243,7 +243,7 @@ mod tests {
             },
         );
         agents.insert(
-            "codex_cli@gpt-5-codex".to_string(),
+            "codex_cli@gpt-5.5".to_string(),
             AgentConfig {
                 display_name: "Codex CLI".to_string(),
                 supports_languages: vec!["typescript".to_string(), "python".to_string()],
@@ -300,7 +300,7 @@ mod tests {
                     .to_string(),
             feature_vector: "[]".to_string(),
             constraints_json: None,
-            chosen_agent: "claude_code@claude-opus-4-8".to_string(),
+            chosen_agent: "claude_code@claude-sonnet-4-6".to_string(),
             action: "assign".to_string(),
             confidence: 0.92,
             decision_path: "[]".to_string(),
@@ -318,12 +318,12 @@ mod tests {
     #[test]
     fn rejects_invalid_status() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
         let config = test_config();
 
         let args = serde_json::json!({
             "task_id": "t1",
-            "agent_id": "claude_code@claude-opus-4-8",
+            "agent_id": "claude_code@claude-sonnet-4-6",
             "status": "invalid_status"
         });
 
@@ -340,7 +340,7 @@ mod tests {
 
         let args = serde_json::json!({
             "task_id": "",
-            "agent_id": "claude_code@claude-opus-4-8",
+            "agent_id": "claude_code@claude-sonnet-4-6",
             "status": "success"
         });
 
@@ -353,18 +353,18 @@ mod tests {
     #[test]
     fn records_outcome_with_known_decision() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
         let config = test_config();
 
         // Insert a decision first
         let decision = sample_decision("t1");
         db.insert_decision(&decision).unwrap();
-        db.increment_running_tasks("claude_code@claude-opus-4-8")
+        db.increment_running_tasks("claude_code@claude-sonnet-4-6")
             .unwrap();
 
         let args = serde_json::json!({
             "task_id": "t1",
-            "agent_id": "claude_code@claude-opus-4-8",
+            "agent_id": "claude_code@claude-sonnet-4-6",
             "status": "success",
             "duration_min": 12.5,
             "tokens_used": 35000,
@@ -375,14 +375,19 @@ mod tests {
 
         assert!(result.recorded);
         assert_eq!(result.task_id, "t1");
-        assert_eq!(result.updated_stats.agent_id, "claude_code@claude-opus-4-8");
+        assert_eq!(
+            result.updated_stats.agent_id,
+            "claude_code@claude-sonnet-4-6"
+        );
         assert_eq!(result.updated_stats.total_tasks, 1);
         assert!((result.updated_stats.success_rate - 1.0).abs() < f64::EPSILON);
         assert!(!result.retrain_suggested);
         assert!(result.warnings.is_empty());
 
         // running_tasks should be decremented back to 0
-        let running = db.get_running_tasks("claude_code@claude-opus-4-8").unwrap();
+        let running = db
+            .get_running_tasks("claude_code@claude-sonnet-4-6")
+            .unwrap();
         assert_eq!(running, 0);
     }
 
@@ -391,12 +396,12 @@ mod tests {
     #[test]
     fn records_outcome_with_unknown_task_id() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
         let config = test_config();
 
         let args = serde_json::json!({
             "task_id": "unknown-task",
-            "agent_id": "claude_code@claude-opus-4-8",
+            "agent_id": "claude_code@claude-sonnet-4-6",
             "status": "success",
             "duration_min": 5.0
         });
@@ -410,7 +415,9 @@ mod tests {
             .contains(&"No matching decision found".to_string()));
 
         // running_tasks should NOT be decremented (no decision found)
-        let running = db.get_running_tasks("claude_code@claude-opus-4-8").unwrap();
+        let running = db
+            .get_running_tasks("claude_code@claude-sonnet-4-6")
+            .unwrap();
         assert_eq!(running, 0);
     }
 
@@ -419,7 +426,7 @@ mod tests {
     #[test]
     fn ut_15_running_tasks_clamp_to_zero() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
         let config = test_config();
 
         // running_tasks starts at 0, decision exists so decrement will run
@@ -428,13 +435,14 @@ mod tests {
 
         // Do NOT increment running_tasks - it's already 0
         assert_eq!(
-            db.get_running_tasks("claude_code@claude-opus-4-8").unwrap(),
+            db.get_running_tasks("claude_code@claude-sonnet-4-6")
+                .unwrap(),
             0
         );
 
         let args = serde_json::json!({
             "task_id": "t-clamp",
-            "agent_id": "claude_code@claude-opus-4-8",
+            "agent_id": "claude_code@claude-sonnet-4-6",
             "status": "success"
         });
 
@@ -442,7 +450,9 @@ mod tests {
         assert!(result.recorded);
 
         // running_tasks should be clamped at 0, not go negative
-        let running = db.get_running_tasks("claude_code@claude-opus-4-8").unwrap();
+        let running = db
+            .get_running_tasks("claude_code@claude-sonnet-4-6")
+            .unwrap();
         assert_eq!(running, 0, "running_tasks should be clamped at 0");
     }
 
@@ -451,7 +461,7 @@ mod tests {
     #[test]
     fn retrain_suggested_on_high_failures() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
         let config = test_config(); // max_failures_24h = 5
 
         // Insert 5 prior failure outcomes to bring count to threshold
@@ -461,7 +471,7 @@ mod tests {
             let outcome = OutcomeRecord {
                 task_id: format!("t-fail-{i}"),
                 decision_id: Some(did),
-                agent_id: "claude_code@claude-opus-4-8".to_string(),
+                agent_id: "claude_code@claude-sonnet-4-6".to_string(),
                 status: "failure".to_string(),
                 duration_min: Some(5.0),
                 tokens_used: None,
@@ -479,12 +489,12 @@ mod tests {
         // Now report one more failure (the 6th)
         let decision = sample_decision("t-fail-trigger");
         db.insert_decision(&decision).unwrap();
-        db.increment_running_tasks("claude_code@claude-opus-4-8")
+        db.increment_running_tasks("claude_code@claude-sonnet-4-6")
             .unwrap();
 
         let args = serde_json::json!({
             "task_id": "t-fail-trigger",
-            "agent_id": "claude_code@claude-opus-4-8",
+            "agent_id": "claude_code@claude-sonnet-4-6",
             "status": "failure",
             "error_summary": "another failure"
         });
@@ -500,7 +510,7 @@ mod tests {
     #[test]
     fn retrain_not_suggested_below_threshold() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
         let config = test_config(); // max_failures_24h = 5
 
         // Insert only 2 failures
@@ -510,7 +520,7 @@ mod tests {
             let outcome = OutcomeRecord {
                 task_id: format!("t-few-{i}"),
                 decision_id: Some(did),
-                agent_id: "claude_code@claude-opus-4-8".to_string(),
+                agent_id: "claude_code@claude-sonnet-4-6".to_string(),
                 status: "failure".to_string(),
                 duration_min: None,
                 tokens_used: None,
@@ -531,7 +541,7 @@ mod tests {
 
         let args = serde_json::json!({
             "task_id": "t-ok",
-            "agent_id": "claude_code@claude-opus-4-8",
+            "agent_id": "claude_code@claude-sonnet-4-6",
             "status": "success"
         });
 
@@ -544,7 +554,7 @@ mod tests {
     #[test]
     fn it_05_stats_accumulation_10x() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
         let config = test_config();
 
         let mut total_duration = 0.0;
@@ -554,7 +564,7 @@ mod tests {
         for i in 0..10 {
             let decision = sample_decision(&format!("it05-{i}"));
             db.insert_decision(&decision).unwrap();
-            db.increment_running_tasks("claude_code@claude-opus-4-8")
+            db.increment_running_tasks("claude_code@claude-sonnet-4-6")
                 .unwrap();
 
             let is_success = i % 3 != 0; // 7 successes, 3 failures
@@ -569,7 +579,7 @@ mod tests {
 
             let args = serde_json::json!({
                 "task_id": format!("it05-{i}"),
-                "agent_id": "claude_code@claude-opus-4-8",
+                "agent_id": "claude_code@claude-sonnet-4-6",
                 "status": if is_success { "success" } else { "failure" },
                 "duration_min": dur,
                 "cost_usd": cost
@@ -581,7 +591,7 @@ mod tests {
         }
 
         // Verify final stats
-        let stats = db.get_agent_stats("claude_code@claude-opus-4-8").unwrap();
+        let stats = db.get_agent_stats("claude_code@claude-sonnet-4-6").unwrap();
         assert_eq!(stats.total_tasks, 10);
         assert_eq!(stats.successful_tasks, successes);
         assert_eq!(stats.failed_tasks, 10 - successes);
@@ -601,7 +611,9 @@ mod tests {
         );
 
         // running_tasks should be back to 0
-        let running = db.get_running_tasks("claude_code@claude-opus-4-8").unwrap();
+        let running = db
+            .get_running_tasks("claude_code@claude-sonnet-4-6")
+            .unwrap();
         assert_eq!(running, 0);
     }
 
@@ -610,19 +622,19 @@ mod tests {
     #[test]
     fn it_06_agent_failure_detection() {
         let db = setup_db();
-        insert_test_agent(&db, "claude_code@claude-opus-4-8");
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
         let config = test_config(); // max_failures_24h = 5
 
         // Report 5 failures (at threshold, not over)
         for i in 0..5 {
             let decision = sample_decision(&format!("it06-{i}"));
             db.insert_decision(&decision).unwrap();
-            db.increment_running_tasks("claude_code@claude-opus-4-8")
+            db.increment_running_tasks("claude_code@claude-sonnet-4-6")
                 .unwrap();
 
             let args = serde_json::json!({
                 "task_id": format!("it06-{i}"),
-                "agent_id": "claude_code@claude-opus-4-8",
+                "agent_id": "claude_code@claude-sonnet-4-6",
                 "status": "failure",
                 "error_summary": format!("crash #{i}")
             });
@@ -646,12 +658,12 @@ mod tests {
         let last_at_5 = {
             let decision = sample_decision("it06-check-5");
             db.insert_decision(&decision).unwrap();
-            db.increment_running_tasks("claude_code@claude-opus-4-8")
+            db.increment_running_tasks("claude_code@claude-sonnet-4-6")
                 .unwrap();
 
             let args = serde_json::json!({
                 "task_id": "it06-check-5",
-                "agent_id": "claude_code@claude-opus-4-8",
+                "agent_id": "claude_code@claude-sonnet-4-6",
                 "status": "success"
             });
             execute(&args, &db, &config).unwrap()
@@ -665,12 +677,12 @@ mod tests {
         // Report the 6th failure (one over threshold)
         let decision = sample_decision("it06-over");
         db.insert_decision(&decision).unwrap();
-        db.increment_running_tasks("claude_code@claude-opus-4-8")
+        db.increment_running_tasks("claude_code@claude-sonnet-4-6")
             .unwrap();
 
         let args = serde_json::json!({
             "task_id": "it06-over",
-            "agent_id": "claude_code@claude-opus-4-8",
+            "agent_id": "claude_code@claude-sonnet-4-6",
             "status": "timeout",
             "error_summary": "timed out"
         });
@@ -694,7 +706,7 @@ mod tests {
             task_id: "t1".to_string(),
             recorded: true,
             updated_stats: UpdatedStats {
-                agent_id: "claude_code@claude-opus-4-8".to_string(),
+                agent_id: "claude_code@claude-sonnet-4-6".to_string(),
                 total_tasks: 5,
                 success_rate: 0.8,
                 avg_duration_min: 10.0,
@@ -709,7 +721,7 @@ mod tests {
         assert_eq!(json["recorded"], true);
         assert_eq!(
             json["updated_stats"]["agent_id"],
-            "claude_code@claude-opus-4-8"
+            "claude_code@claude-sonnet-4-6"
         );
         assert_eq!(json["updated_stats"]["total_tasks"], 5);
         assert_eq!(json["updated_stats"]["success_rate"], 0.8);
