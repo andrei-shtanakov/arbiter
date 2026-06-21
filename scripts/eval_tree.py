@@ -101,10 +101,20 @@ class ExpertRule:
 EXPERT_RULES: list[ExpertRule] = [
     # Rule group 1: complex/critical + Rust -> claude_code@claude-sonnet-4-6
     ExpertRule(
-        TASK_FEATURE, LANG_RUST, COMP_COMPLEX, "claude_code@claude-sonnet-4-6", 15.0, 0.15
+        TASK_FEATURE,
+        LANG_RUST,
+        COMP_COMPLEX,
+        "claude_code@claude-sonnet-4-6",
+        15.0,
+        0.15,
     ),
     ExpertRule(
-        TASK_BUGFIX, LANG_RUST, COMP_CRITICAL, "claude_code@claude-sonnet-4-6", 15.0, 0.15
+        TASK_BUGFIX,
+        LANG_RUST,
+        COMP_CRITICAL,
+        "claude_code@claude-sonnet-4-6",
+        15.0,
+        0.15,
     ),
     ExpertRule(
         TASK_REFACTOR,
@@ -133,7 +143,12 @@ EXPERT_RULES: list[ExpertRule] = [
     ),
     # Rule group 3: docs/review/research -> claude_code@claude-sonnet-4-6
     ExpertRule(
-        TASK_DOCS, LANG_PYTHON, COMP_MODERATE, "claude_code@claude-sonnet-4-6", 15.0, 0.15
+        TASK_DOCS,
+        LANG_PYTHON,
+        COMP_MODERATE,
+        "claude_code@claude-sonnet-4-6",
+        15.0,
+        0.15,
     ),
     ExpertRule(
         TASK_REVIEW, LANG_RUST, COMP_SIMPLE, "claude_code@claude-sonnet-4-6", 15.0, 0.15
@@ -167,9 +182,7 @@ EXPERT_RULES: list[ExpertRule] = [
     ),
     # Rule group 7: Go language -> codex_cli@gpt-5.5
     ExpertRule(TASK_FEATURE, LANG_GO, COMP_SIMPLE, "codex_cli@gpt-5.5", 10.0, 0.10),
-    ExpertRule(
-        TASK_BUGFIX, LANG_GO, COMP_MODERATE, "codex_cli@gpt-5.5", 10.0, 0.10
-    ),
+    ExpertRule(TASK_BUGFIX, LANG_GO, COMP_MODERATE, "codex_cli@gpt-5.5", 10.0, 0.10),
     # Rule group 8: moderate + Python -> codex_cli@gpt-5.5
     ExpertRule(
         TASK_FEATURE, LANG_PYTHON, COMP_MODERATE, "codex_cli@gpt-5.5", 12.0, 0.10
