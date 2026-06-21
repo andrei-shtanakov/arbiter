@@ -42,24 +42,33 @@ async def ingest(payload_dir: Path, db_path: Path) -> int:
     await client.start()
     created = 0
     duplicate = 0
+    unexpected = 0
     try:
         for path in payloads:
             args = json.loads(path.read_text())
+            agent_id = args.get("agent_id", "?") if isinstance(args, dict) else "?"
             result = await client.report_benchmark(args)
             status = result.get("status", "?")
             run_id = result.get("run_id", "?")
-            print(f"{path.name}: {status} ({args['agent_id']}, run_id={run_id})")
+            print(f"{path.name}: {status} ({agent_id}, run_id={run_id})")
             if status == "created":
                 created += 1
             elif status == "duplicate":
                 duplicate += 1
+            else:
+                # Unknown status (e.g. tool/schema change) — do not silently pass.
+                unexpected += 1
+                print(
+                    f"  ! unexpected status {status!r} for {path.name}", file=sys.stderr
+                )
     finally:
         await client.stop()
 
     print(
-        f"\nDone: {len(payloads)} payloads -> {created} created, {duplicate} duplicate"
+        f"\nDone: {len(payloads)} payloads -> {created} created, "
+        f"{duplicate} duplicate, {unexpected} unexpected"
     )
-    return 0
+    return 1 if unexpected else 0
 
 
 def main() -> int:

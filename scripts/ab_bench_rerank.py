@@ -37,7 +37,9 @@ async def run_once(db_path: Path, weight: str) -> None:
     client = ArbiterClient(ArbiterClientConfig(db_path=db_path, log_level="warn"))
     await client.start()
     try:
-        decision = await client.route_task("ab-review-task", REVIEW_TASK)
+        # Distinct task_id per weight so persisted decisions stay auditable.
+        task_id = f"ab-review-w{weight.replace('.', '_')}"
+        decision = await client.route_task(task_id, REVIEW_TASK)
     finally:
         await client.stop()
 
