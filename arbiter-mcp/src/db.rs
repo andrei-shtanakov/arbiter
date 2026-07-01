@@ -822,16 +822,17 @@ impl Database {
                  WHERE agent_id = ?1 AND benchmark_id = ?2 \
                  ORDER BY ts DESC LIMIT 1",
                 params![agent_id, benchmark_id],
-                |r| Ok((r.get::<_, f64>(0)?, r.get::<_, String>(1)?)),
+                |r| Ok((r.get::<_, f64>(0)?, r.get::<_, Option<String>>(1)?)),
             )
             .optional()
             .context("Failed to read benchmark score")?;
         // Prefer the routing-only `rank_score` tiebreaker (R-07) when present and
-        // numeric; fall back to the scalar critical_pass_rate. Malformed JSON or a
-        // missing key falls back with no panic.
+        // numeric; fall back to the scalar critical_pass_rate. NULL, malformed
+        // JSON, or a missing key all fall back with no panic.
         Ok(row.map(|(score, components)| {
-            serde_json::from_str::<serde_json::Value>(&components)
-                .ok()
+            components
+                .as_deref()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
                 .and_then(|v| v.get("rank_score").and_then(serde_json::Value::as_f64))
                 .unwrap_or(score)
                 .clamp(0.0, 1.0)
@@ -1187,24 +1188,29 @@ mod tests {
     #[test]
     fn get_benchmark_score_falls_back_without_rank_score() {
         let db = setup_db();
-        let row = |run_id: &'static str, sc: &'static str, score: f64| BenchmarkRunInput {
-            run_id,
-            payload_version: "1.0.0",
-            benchmark_id: "code-review",
-            agent_id: "claude_code@claude-sonnet-4-6",
-            ts: "2026-06-13T00:00:00Z",
-            score,
-            score_components: sc,
-            total_tokens: None,
-            total_cost_usd: None,
-            duration_seconds: 0.0,
-            per_task: "[]",
-            per_task_total_count: 0,
-            per_task_truncated: 0,
+        let row = |run_id: &'static str, sc: &'static str, score: f64, ts: &'static str| {
+            BenchmarkRunInput {
+                run_id,
+                payload_version: "1.0.0",
+                benchmark_id: "code-review",
+                agent_id: "claude_code@claude-sonnet-4-6",
+                ts,
+                score,
+                score_components: sc,
+                total_tokens: None,
+                total_cost_usd: None,
+                duration_seconds: 0.0,
+                per_task: "[]",
+                per_task_total_count: 0,
+                per_task_truncated: 0,
+            }
         };
-        // no rank_score key -> scalar score; malformed JSON -> scalar (no panic)
-        db.insert_benchmark_run(&row("r1", "{}", 0.80)).unwrap();
-        db.insert_benchmark_run(&row("r2", "not json", 0.80)).unwrap();
+        // r1: no rank_score key -> falls back to scalar (earlier ts)
+        // r2: malformed JSON -> falls back to scalar (later ts, selected by ORDER BY ts DESC)
+        db.insert_benchmark_run(&row("r1", "{}", 0.80, "2026-06-13T00:00:00Z"))
+            .unwrap();
+        db.insert_benchmark_run(&row("r2", "not json", 0.80, "2026-06-13T00:01:00Z"))
+            .unwrap();
         assert_eq!(
             db.get_benchmark_score("claude_code@claude-sonnet-4-6", "code-review")
                 .unwrap(),
