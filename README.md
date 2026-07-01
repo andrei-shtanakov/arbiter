@@ -378,7 +378,7 @@ fused section headers are quoted.
 
 ```toml
 ["claude_code@claude-sonnet-4-6"]
-display_name = "Claude Code"
+display_name = "Claude Code (Sonnet 4.6)"
 supports_languages = ["python", "rust", "typescript"]
 supports_types = ["feature", "bugfix", "refactor", "docs", "review", "research"]
 max_concurrent = 2
@@ -386,9 +386,9 @@ cost_per_hour = 0.30
 avg_duration_min = 18.0
 
 ["codex_cli@gpt-5.5"]
-display_name = "Codex CLI"
+display_name = "Codex CLI (GPT-5.5)"
 supports_languages = ["typescript", "go", "python"]
-supports_types = ["feature", "bugfix", "refactor", "test"]
+supports_types = ["feature", "bugfix", "refactor", "test", "review"]
 max_concurrent = 3
 cost_per_hour = 0.20
 avg_duration_min = 12.0

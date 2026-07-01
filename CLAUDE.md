@@ -92,8 +92,11 @@ arbiter/
 │   └── tests/
 │       ├── integration.rs        # Integration tests
 │       ├── golden_tests.rs       # Golden file protocol tests
+│       ├── contract_test.rs      # Observability log-schema contract tests
+│       ├── report_benchmark_test.rs # report_benchmark tool tests (R-06b M4)
 │       └── golden/               # Golden test fixtures (JSONL request/response pairs)
 ├── arbiter-cli/                  # CLI for smoke tests and benchmarks
+│   └── benches/routing.rs        # Criterion routing benchmark
 ├── config/
 │   ├── agents.toml               # Agent definitions (capabilities, costs, concurrency)
 │   └── invariants.toml           # Rule thresholds (budget, retries, rate limits)
@@ -101,12 +104,21 @@ arbiter/
 │   └── agent_policy_tree.json    # Bootstrap decision tree (sklearn export)
 ├── scripts/
 │   ├── bootstrap_agent_tree.py   # Expert rules → training data → tree → JSON (supports --from-db)
-│   └── eval_tree.py              # Evaluate tree quality: DT vs round-robin vs always-best
-└── orchestrator/                 # Python MCP client
-    ├── arbiter_client.py         # ArbiterClient class (subprocess + JSON-RPC)
-    └── tests/
-        └── test_arbiter_integration.py
+│   ├── eval_tree.py              # Evaluate tree quality: DT vs round-robin vs always-best
+│   ├── ab_bench_rerank.py        # A/B check for the R-07 benchmark re-rank (ARBITER_BENCH_WEIGHT)
+│   └── ingest_benchmark_payloads.py # One-off: feed ATP payloads through report_benchmark (R-07)
+├── orchestrator/                 # Python MCP client
+│   ├── arbiter_client.py         # ArbiterClient class (subprocess + JSON-RPC)
+│   ├── types.py                  # Frozen dataclass DTOs for route/outcome/status responses
+│   ├── _vendor/obs.py            # Vendored observability emitter (from spec-runner)
+│   └── tests/
+│       ├── test_arbiter_integration.py  # MCP protocol integration tests
+│       └── test_e2e_smoke.py            # E2E route → report → status cycle via real binary
+└── tests/                        # Workspace-level Python tests (bootstrap tree, workspace)
 ```
+
+`arbiter-core/tests/` also holds observability contract tests (`emit_contract.rs`,
+`fixtures_contract.rs`).
 
 ---
 
@@ -219,11 +231,16 @@ uv run pytest orchestrator/tests/
    - Compares DT vs round-robin vs always-best strategies
    - Run: `uv run python scripts/eval_tree.py`
 
-3. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
+3. **`scripts/ab_bench_rerank.py`** / **`scripts/ingest_benchmark_payloads.py`** — R-07 operational scripts
+   - `ab_bench_rerank.py`: A/B check for the benchmark re-rank (spawns arbiter-mcp with/without `ARBITER_BENCH_WEIGHT`)
+   - `ingest_benchmark_payloads.py`: one-off ingest of ATP `report_benchmark_*.json` payloads via the `report_benchmark` tool
+
+4. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
    - Pure stdlib: asyncio, json, subprocess
    - No external dependencies
+   - `orchestrator/types.py` holds the frozen dataclass DTOs it returns
 
-4. **`orchestrator/tests/test_arbiter_integration.py`** — end-to-end MCP protocol tests
+5. **`orchestrator/tests/`** — end-to-end MCP protocol tests (`test_arbiter_integration.py`, `test_e2e_smoke.py`)
    - Dependencies: pytest, pytest-asyncio
 
 ### Python Coding Standards
@@ -268,10 +285,13 @@ See `arbiter-spec.md` sections 4.2 (`route_task`), 4.3 (`report_outcome`), 4.4 (
 
 | Layer | Tool | Location | Count |
 |---|---|---|---|
-| Unit (Rust) | `cargo test` | `arbiter-core/src/`, `arbiter-mcp/src/` | ~285 tests |
+| Unit (Rust) | `cargo test` | `arbiter-core/src/`, `arbiter-mcp/src/` | ~290 tests |
 | Integration (Rust) | `cargo test --test integration` | `arbiter-mcp/tests/integration.rs` | 16 tests |
 | Golden (Rust) | `cargo test --test golden_tests` | `arbiter-mcp/tests/golden_tests.rs` | 12 fixtures |
-| MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 12 tests |
+| report_benchmark (Rust) | `cargo test --test report_benchmark_test` | `arbiter-mcp/tests/report_benchmark_test.rs` | 16 tests |
+| Obs contract (Rust) | `cargo test` | `arbiter-mcp/tests/contract_test.rs`, `arbiter-core/tests/` | 7 tests |
+| MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 13 tests |
+| Workspace (Python) | `uv run pytest tests/` | `tests/` | 13 tests |
 | Benchmarks (Rust) | `cargo run --bin arbiter-cli` | `arbiter-cli/src/` | 5 benchmarks |
 
 ### Performance Targets
