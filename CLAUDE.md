@@ -114,7 +114,7 @@ arbiter/
 │   └── tests/
 │       ├── test_arbiter_integration.py  # MCP protocol integration tests
 │       └── test_e2e_smoke.py            # E2E route → report → status cycle via real binary
-└── tests/                        # Workspace-level Python tests (bootstrap tree, workspace)
+└── tests/                        # Workspace-level Python tests (bootstrap tree, workspace, scaffold gen)
 ```
 
 `arbiter-core/tests/` also holds observability contract tests (`emit_contract.rs`,
@@ -291,7 +291,7 @@ See `arbiter-spec.md` sections 4.2 (`route_task`), 4.3 (`report_outcome`), 4.4 (
 | report_benchmark (Rust) | `cargo test --test report_benchmark_test` | `arbiter-mcp/tests/report_benchmark_test.rs` | 16 tests |
 | Obs contract (Rust) | `cargo test` | `arbiter-mcp/tests/contract_test.rs`, `arbiter-core/tests/` | 7 tests |
 | MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 13 tests |
-| Workspace (Python) | `uv run pytest tests/` | `tests/` | 13 tests |
+| Workspace (Python) | `uv run pytest tests/` | `tests/` | 19 tests |
 | Benchmarks (Rust) | `cargo run --bin arbiter-cli` | `arbiter-cli/src/` | 5 benchmarks |
 
 ### Performance Targets
