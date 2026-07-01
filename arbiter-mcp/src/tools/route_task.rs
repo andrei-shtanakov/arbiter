@@ -79,6 +79,7 @@ fn apply_benchmark_rerank(
         b.1.confidence
             .partial_cmp(&a.1.confidence)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
     });
     Ok(())
 }
@@ -745,6 +746,30 @@ mod tests {
         apply_benchmark_rerank(&mut review, &TaskType::Review, &db, 0.0).unwrap();
         assert_eq!(review[0].1.confidence, 0.50);
         assert!(review[0].1.path.is_empty());
+    }
+
+    #[test]
+    fn rerank_breaks_residual_ties_by_agent_id() {
+        // Identical code-review score AND identical base confidence => identical
+        // adjusted confidence => the sort must be deterministic by agent_id.
+        let db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        seed_bench(&db, "a", "zzz@m", "code-review", 0.80);
+        seed_bench(&db, "b", "aaa@m", "code-review", 0.80);
+
+        let mk = |conf: f64| PredictionResult {
+            class: 0,
+            confidence: conf,
+            path: vec![],
+        };
+        // input order deliberately puts zzz first
+        let mut ranked = vec![
+            ("zzz@m".to_string(), mk(0.50)),
+            ("aaa@m".to_string(), mk(0.50)),
+        ];
+        apply_benchmark_rerank(&mut ranked, &TaskType::Review, &db, 0.15).unwrap();
+        assert_eq!(ranked[0].0, "aaa@m", "residual tie resolves by agent_id ascending");
+        assert_eq!(ranked[1].0, "zzz@m");
     }
 
     fn test_tree_json() -> String {
