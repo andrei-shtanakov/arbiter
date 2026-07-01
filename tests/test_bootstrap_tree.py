@@ -48,9 +48,11 @@ def test_tree_json_valid_format() -> None:
 
     assert data["n_features"] == 22
     assert data["n_classes"] == 3
+    # Fused <harness>@<model> ids since the agent-id migration (#24/#26);
+    # mirrors scripts/bootstrap_agent_tree.py::AGENTS.
     assert data["class_names"] == [
-        "claude_code",
-        "codex_cli",
+        "claude_code@claude-sonnet-4-6",
+        "codex_cli@gpt-5.5",
         "aider",
     ]
     assert len(data["feature_names"]) == 22
