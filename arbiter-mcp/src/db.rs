@@ -818,15 +818,24 @@ impl Database {
         let row = self
             .conn
             .query_row(
-                "SELECT score FROM benchmark_runs \
+                "SELECT score, score_components FROM benchmark_runs \
                  WHERE agent_id = ?1 AND benchmark_id = ?2 \
                  ORDER BY ts DESC LIMIT 1",
                 params![agent_id, benchmark_id],
-                |r| r.get::<_, f64>(0),
+                |r| Ok((r.get::<_, f64>(0)?, r.get::<_, String>(1)?)),
             )
             .optional()
             .context("Failed to read benchmark score")?;
-        Ok(row.map(|s| s.clamp(0.0, 1.0)))
+        // Prefer the routing-only `rank_score` tiebreaker (R-07) when present and
+        // numeric; fall back to the scalar critical_pass_rate. Malformed JSON or a
+        // missing key falls back with no panic.
+        Ok(row.map(|(score, components)| {
+            serde_json::from_str::<serde_json::Value>(&components)
+                .ok()
+                .and_then(|v| v.get("rank_score").and_then(serde_json::Value::as_f64))
+                .unwrap_or(score)
+                .clamp(0.0, 1.0)
+        }))
     }
 
     /// Get a reference to the underlying connection (for testing).
@@ -1144,6 +1153,62 @@ mod tests {
         assert_eq!(
             db.get_benchmark_score("aider", "code-review").unwrap(),
             None
+        );
+    }
+
+    #[test]
+    fn get_benchmark_score_prefers_rank_score_over_scalar() {
+        let db = setup_db();
+        let row = |run_id: &'static str, sc: &'static str, score: f64| BenchmarkRunInput {
+            run_id,
+            payload_version: "1.0.0",
+            benchmark_id: "code-review",
+            agent_id: "claude_code@claude-sonnet-4-6",
+            ts: "2026-06-13T00:00:00Z",
+            score,
+            score_components: sc,
+            total_tokens: None,
+            total_cost_usd: None,
+            duration_seconds: 0.0,
+            per_task: "[]",
+            per_task_total_count: 0,
+            per_task_truncated: 0,
+        };
+        db.insert_benchmark_run(&row("r1", r#"{"rank_score":0.63}"#, 0.80))
+            .unwrap();
+        assert_eq!(
+            db.get_benchmark_score("claude_code@claude-sonnet-4-6", "code-review")
+                .unwrap(),
+            Some(0.63),
+            "rank_score is preferred over the scalar score"
+        );
+    }
+
+    #[test]
+    fn get_benchmark_score_falls_back_without_rank_score() {
+        let db = setup_db();
+        let row = |run_id: &'static str, sc: &'static str, score: f64| BenchmarkRunInput {
+            run_id,
+            payload_version: "1.0.0",
+            benchmark_id: "code-review",
+            agent_id: "claude_code@claude-sonnet-4-6",
+            ts: "2026-06-13T00:00:00Z",
+            score,
+            score_components: sc,
+            total_tokens: None,
+            total_cost_usd: None,
+            duration_seconds: 0.0,
+            per_task: "[]",
+            per_task_total_count: 0,
+            per_task_truncated: 0,
+        };
+        // no rank_score key -> scalar score; malformed JSON -> scalar (no panic)
+        db.insert_benchmark_run(&row("r1", "{}", 0.80)).unwrap();
+        db.insert_benchmark_run(&row("r2", "not json", 0.80)).unwrap();
+        assert_eq!(
+            db.get_benchmark_score("claude_code@claude-sonnet-4-6", "code-review")
+                .unwrap(),
+            Some(0.80)
         );
     }
 
