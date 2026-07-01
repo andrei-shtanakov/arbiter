@@ -79,6 +79,9 @@ fn apply_benchmark_rerank(
         b.1.confidence
             .partial_cmp(&a.1.confidence)
             .unwrap_or(std::cmp::Ordering::Equal)
+            // Deterministic order for ANY residual confidence tie (agent_id ascending,
+            // consistent with the primary ranking sort). Only fires when confidences
+            // are exactly equal.
             .then_with(|| a.0.cmp(&b.0))
     });
     Ok(())
@@ -770,6 +773,53 @@ mod tests {
         apply_benchmark_rerank(&mut ranked, &TaskType::Review, &db, 0.15).unwrap();
         assert_eq!(ranked[0].0, "aaa@m", "residual tie resolves by agent_id ascending");
         assert_eq!(ranked[1].0, "zzz@m");
+    }
+
+    #[test]
+    fn rerank_orders_tied_scalar_agents_by_rank_score() {
+        // Both agents tie on the scalar score (0.80) but differ on rank_score
+        // inside score_components. The higher rank_score must win even though its
+        // agent_id sorts LAST — proving rank_score drives the order, not the
+        // agent_id tiebreak. Equal base confidence isolates the benchmark delta.
+        let db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        let row = |run_id: &'static str, agent: &'static str, sc: &'static str| {
+            crate::db::BenchmarkRunInput {
+                run_id,
+                payload_version: "1.0.0",
+                benchmark_id: "code-review",
+                agent_id: agent,
+                ts: "2026-06-13T00:00:00Z",
+                score: 0.80,
+                score_components: sc,
+                total_tokens: None,
+                total_cost_usd: None,
+                duration_seconds: 0.0,
+                per_task: "[]",
+                per_task_total_count: 0,
+                per_task_truncated: 0,
+            }
+        };
+        db.insert_benchmark_run(&row("r1", "zzz@m", r#"{"rank_score":0.775}"#))
+            .unwrap();
+        db.insert_benchmark_run(&row("r2", "aaa@m", r#"{"rank_score":0.760}"#))
+            .unwrap();
+
+        let mk = |conf: f64| PredictionResult {
+            class: 0,
+            confidence: conf,
+            path: vec![],
+        };
+        let mut ranked = vec![
+            ("aaa@m".to_string(), mk(0.50)),
+            ("zzz@m".to_string(), mk(0.50)),
+        ];
+        apply_benchmark_rerank(&mut ranked, &TaskType::Review, &db, 0.15).unwrap();
+        // zzz@m: 0.50 + (0.775-0.5)*0.15 = 0.541250 ; aaa@m: 0.50 + (0.760-0.5)*0.15 = 0.539000
+        assert_eq!(
+            ranked[0].0, "zzz@m",
+            "higher rank_score wins despite later agent_id"
+        );
     }
 
     fn test_tree_json() -> String {
