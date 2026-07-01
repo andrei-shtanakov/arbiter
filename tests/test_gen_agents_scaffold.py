@@ -7,8 +7,11 @@ agents.toml *section keys only* — it must never invent policy values.
 from __future__ import annotations
 
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
+
+import pytest
 
 from scripts.gen_agents_scaffold import (
     load_routable_ids,
@@ -120,9 +123,9 @@ def test_script_runs_against_vendored_catalog() -> None:
     """End-to-end: script exits 0 and prints both live routable keys."""
     repo = Path(__file__).resolve().parent.parent
     if not (repo / "config" / "agents-catalog.toml").exists():
-        return  # vendored copy not present in this checkout — skip smoke
+        pytest.skip("vendored config/agents-catalog.toml not present in this checkout")
     result = subprocess.run(
-        ["uv", "run", "python", "scripts/gen_agents_scaffold.py"],
+        [sys.executable, "scripts/gen_agents_scaffold.py"],
         capture_output=True,
         text=True,
         timeout=60,

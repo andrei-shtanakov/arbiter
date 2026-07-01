@@ -4,8 +4,9 @@ Reads the vendored `config/agents-catalog.toml` and the current
 `config/agents.toml`, then prints a reconciled scaffold of the fused
 `["<harness>@<model>"]` sections for every `routable = true` pair:
 
-  - KEEP  — a routable key already present: re-emitted verbatim (policy fields
-            untouched; this tool never rewrites policy).
+  - KEEP  — a routable key already present: its policy fields are preserved
+            untouched (surrounding whitespace may be normalized; this tool
+            never rewrites policy values).
   - NEW   — a routable key with no section yet: emitted as a header plus
             commented `# TODO(policy)` placeholders for a human to fill.
   - STALE — a fused section present but no longer routable in the catalog:
@@ -18,7 +19,8 @@ sections (pre-convention, not fused) are ignored, matching the devtools
 `check-agent-id-conformance.py` rule.
 
 READ-ONLY: prints the scaffold to stdout and a kept/new/stale report to stderr;
-never edits any file. Exit code is always 0 (advisory tool).
+never edits any file. Drift (new/stale keys) is advisory, not an error — exit is
+0 on success and non-zero only when the catalog cannot be read or parsed.
 
 Usage:
     uv run python scripts/gen_agents_scaffold.py
@@ -143,7 +145,7 @@ def render_scaffold(result: Reconciled) -> str:
     parts = [
         "# GENERATED scaffold — agents.toml routable section keys (ADR-ECO-003 #5).",
         "# Source: config/agents-catalog.toml (routable=true). Keys only — policy",
-        "# fields are hand-authored. Kept sections are re-emitted verbatim.",
+        "# fields are hand-authored and preserved untouched for kept sections.",
         "",
     ]
     parts.append("\n\n".join(result.blocks))
@@ -166,10 +168,18 @@ def main() -> int:
 
     if not args.catalog.exists():
         print(f"catalog not found: {args.catalog}", file=sys.stderr)
-        return 0
-    catalog = tomllib.loads(args.catalog.read_text())
+        return 1
+    try:
+        catalog = tomllib.loads(args.catalog.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        print(f"cannot read catalog {args.catalog}: {exc}", file=sys.stderr)
+        return 1
     routable_ids = load_routable_ids(catalog)
-    agents_text = args.agents_toml.read_text() if args.agents_toml.exists() else ""
+    agents_text = (
+        args.agents_toml.read_text(encoding="utf-8")
+        if args.agents_toml.exists()
+        else ""
+    )
     result = reconcile(routable_ids, split_sections(agents_text))
 
     print(render_scaffold(result), end="")
