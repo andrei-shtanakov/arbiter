@@ -105,6 +105,7 @@ arbiter/
 ├── scripts/
 │   ├── bootstrap_agent_tree.py   # Expert rules → training data → tree → JSON (supports --from-db)
 │   ├── eval_tree.py              # Evaluate tree quality: DT vs round-robin vs always-best
+│   ├── gen_agents_scaffold.py    # Scaffold agents.toml section keys from SSOT catalog (ADR-ECO-003)
 │   ├── ab_bench_rerank.py        # A/B check for the R-07 benchmark re-rank (ARBITER_BENCH_WEIGHT)
 │   └── ingest_benchmark_payloads.py # One-off: feed ATP payloads through report_benchmark (R-07)
 ├── orchestrator/                 # Python MCP client
@@ -231,16 +232,21 @@ uv run pytest orchestrator/tests/
    - Compares DT vs round-robin vs always-best strategies
    - Run: `uv run python scripts/eval_tree.py`
 
-3. **`scripts/ab_bench_rerank.py`** / **`scripts/ingest_benchmark_payloads.py`** — R-07 operational scripts
+3. **`scripts/gen_agents_scaffold.py`** — catalog-driven `agents.toml` scaffold generator (ADR-ECO-003 #5)
+   - Reads the vendored `config/agents-catalog.toml` (SSOT) + current `config/agents.toml`
+   - Prints the reconciled `["<harness>@<model>"]` scaffold for every `routable = true` pair to **stdout** (NEW keys carry a `# TODO(policy)` placeholder, stale sections a `# STALE` marker) plus a kept/new/stale summary to **stderr**
+   - Keys only: preserves existing policy fields untouched (never rewrites policy values)
+
+4. **`scripts/ab_bench_rerank.py`** / **`scripts/ingest_benchmark_payloads.py`** — R-07 operational scripts
    - `ab_bench_rerank.py`: A/B check for the benchmark re-rank (spawns arbiter-mcp with/without `ARBITER_BENCH_WEIGHT`)
    - `ingest_benchmark_payloads.py`: one-off ingest of ATP `report_benchmark_*.json` payloads via the `report_benchmark` tool
 
-4. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
+5. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
    - Pure stdlib: asyncio, json, subprocess
    - No external dependencies
    - `orchestrator/types.py` holds the frozen dataclass DTOs it returns
 
-5. **`orchestrator/tests/`** — end-to-end MCP protocol tests (`test_arbiter_integration.py`, `test_e2e_smoke.py`)
+6. **`orchestrator/tests/`** — end-to-end MCP protocol tests (`test_arbiter_integration.py`, `test_e2e_smoke.py`)
    - Dependencies: pytest, pytest-asyncio
 
 ### Python Coding Standards
