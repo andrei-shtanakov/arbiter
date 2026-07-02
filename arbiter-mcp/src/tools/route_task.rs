@@ -54,6 +54,19 @@ fn benchmark_id_for(task_type: &TaskType) -> Option<&'static str> {
 ///
 /// No-op when `weight <= 0`, the task type has no mapped benchmark, or the agent
 /// has no score for it (left untouched). Confidence stays clamped to `[0, 1]`.
+///
+/// SCOPE (R-07 decision C, 2026-07-02): this is intended as a **tiebreaker**,
+/// not a DT override. The delta is additive and the list is then re-sorted, so a
+/// flip is *possible* in principle (a large enough `weight` or `rank_score` gap
+/// can cross two candidates). In practice it does not overturn a dominant DT leaf
+/// (e.g. a 1.0-confidence review winner): a realistic `rank_score` gap (~0.08)
+/// times a sane `weight` (~0.15) is far smaller than a 1.0-vs-lower DT margin. So
+/// benchmark data breaks ties on DT-ambiguous tasks and is effectively inert on
+/// confident ones under sane weights — by design. Giving the benchmark authority
+/// to genuinely override the DT would be a different mechanism (weighted blend),
+/// consciously not chosen. Rationale is recorded in the ecosystem workspace
+/// status log (`_cowork_output/status/2026-07-02-r07-rerank-tiebreaker-scope.md`,
+/// a sibling repo — not vendored into this crate).
 fn apply_benchmark_rerank(
     ranked: &mut [(String, PredictionResult)],
     task_type: &TaskType,
@@ -771,7 +784,10 @@ mod tests {
             ("aaa@m".to_string(), mk(0.50)),
         ];
         apply_benchmark_rerank(&mut ranked, &TaskType::Review, &db, 0.15).unwrap();
-        assert_eq!(ranked[0].0, "aaa@m", "residual tie resolves by agent_id ascending");
+        assert_eq!(
+            ranked[0].0, "aaa@m",
+            "residual tie resolves by agent_id ascending"
+        );
         assert_eq!(ranked[1].0, "zzz@m");
     }
 
