@@ -55,16 +55,18 @@ fn benchmark_id_for(task_type: &TaskType) -> Option<&'static str> {
 /// No-op when `weight <= 0`, the task type has no mapped benchmark, or the agent
 /// has no score for it (left untouched). Confidence stays clamped to `[0, 1]`.
 ///
-/// SCOPE (R-07 decision C, 2026-07-02): this is a **tiebreaker**, not a DT
-/// override. The additive, clamped delta only changes the outcome when the DT
-/// leaves ≥2 routable candidates near-tied in confidence. It intentionally does
-/// NOT overturn a dominant DT leaf (e.g. a 1.0-confidence review winner): a
-/// realistic `rank_score` gap (~0.08) times a sane `weight` (~0.15) is far
-/// smaller than a 1.0-vs-lower DT margin. So benchmark data breaks ties on
-/// DT-ambiguous tasks and is inert on confident ones — by design. Giving the
-/// benchmark authority to override the DT would be a different mechanism
-/// (weighted blend), consciously not chosen. See
-/// `_cowork_output/status/2026-07-02-r07-rerank-tiebreaker-scope.md`.
+/// SCOPE (R-07 decision C, 2026-07-02): this is intended as a **tiebreaker**,
+/// not a DT override. The delta is additive and the list is then re-sorted, so a
+/// flip is *possible* in principle (a large enough `weight` or `rank_score` gap
+/// can cross two candidates). In practice it does not overturn a dominant DT leaf
+/// (e.g. a 1.0-confidence review winner): a realistic `rank_score` gap (~0.08)
+/// times a sane `weight` (~0.15) is far smaller than a 1.0-vs-lower DT margin. So
+/// benchmark data breaks ties on DT-ambiguous tasks and is effectively inert on
+/// confident ones under sane weights — by design. Giving the benchmark authority
+/// to genuinely override the DT would be a different mechanism (weighted blend),
+/// consciously not chosen. Rationale is recorded in the ecosystem workspace
+/// status log (`_cowork_output/status/2026-07-02-r07-rerank-tiebreaker-scope.md`,
+/// a sibling repo — not vendored into this crate).
 fn apply_benchmark_rerank(
     ranked: &mut [(String, PredictionResult)],
     task_type: &TaskType,
