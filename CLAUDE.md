@@ -234,7 +234,7 @@ uv run pytest orchestrator/tests/
 
 3. **`scripts/gen_agents_scaffold.py`** — catalog-driven `agents.toml` scaffold generator (ADR-ECO-003 #5)
    - Reads the vendored `config/agents-catalog.toml` (SSOT) + current `config/agents.toml`
-   - Prints reconciled `["<harness>@<model>"]` section keys for every `routable = true` pair, marking KEEP / NEW / STALE
+   - Prints the reconciled `["<harness>@<model>"]` scaffold for every `routable = true` pair to **stdout** (NEW keys carry a `# TODO(policy)` placeholder, stale sections a `# STALE` marker) plus a kept/new/stale summary to **stderr**
    - Keys only: preserves existing policy fields untouched (never rewrites policy values)
 
 4. **`scripts/ab_bench_rerank.py`** / **`scripts/ingest_benchmark_payloads.py`** — R-07 operational scripts
