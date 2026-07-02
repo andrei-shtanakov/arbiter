@@ -822,6 +822,83 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rerank_real_resweep_2026_07_02_flips_review_to_codex() {
+        // Real rank_scores ingested from the 2026-07-02 runs=3 code-review
+        // re-sweep (see atp-platform _cowork_output/r07-pipecheck): claude_code
+        // 0.705208 (breakpoint moderate) vs codex_cli 0.781250 (severe). The gap
+        // is small (0.076), so the rerank delta = (score-0.5)*weight lifts codex
+        // by only 0.076*weight relative to claude. This exercises the full R-07
+        // loop end-to-end on the real numbers — no longer the 0.800/0.800 no-op.
+        let db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        let row = |run_id: &'static str, agent: &'static str, sc: &'static str| {
+            crate::db::BenchmarkRunInput {
+                run_id,
+                payload_version: "1.0.0",
+                benchmark_id: "code-review",
+                agent_id: agent,
+                ts: "2026-07-02T09:42:00Z",
+                score: 0.80,
+                score_components: sc,
+                total_tokens: None,
+                total_cost_usd: None,
+                duration_seconds: 0.0,
+                per_task: "[]",
+                per_task_total_count: 0,
+                per_task_truncated: 0,
+            }
+        };
+        db.insert_benchmark_run(&row(
+            "cc",
+            "claude_code@claude-sonnet-4-6",
+            r#"{"rank_score":0.705208,"bp_ordinal":2}"#,
+        ))
+        .unwrap();
+        db.insert_benchmark_run(&row(
+            "cx",
+            "codex_cli@gpt-5.5",
+            r#"{"rank_score":0.781250,"bp_ordinal":3}"#,
+        ))
+        .unwrap();
+
+        let mk = |conf: f64| PredictionResult {
+            class: 0,
+            confidence: conf,
+            path: vec![],
+        };
+        // Illustrative DT base: claude leads codex by 0.03 before the re-rank.
+        let base = || {
+            vec![
+                ("claude_code@claude-sonnet-4-6".to_string(), mk(0.55)),
+                ("codex_cli@gpt-5.5".to_string(), mk(0.52)),
+            ]
+        };
+
+        // Turn the knob and watch: codex overtakes once 0.076*w > 0.03 (w ~ 0.40).
+        for w in [0.0_f64, 0.15, 0.5, 1.0] {
+            let mut r = base();
+            apply_benchmark_rerank(&mut r, &TaskType::Review, &db, w).unwrap();
+            println!(
+                "ARBITER_BENCH_WEIGHT={w:.2} -> [{}={:.4}, {}={:.4}] leader={}",
+                r[0].0, r[0].1.confidence, r[1].0, r[1].1.confidence, r[0].0
+            );
+        }
+
+        let mut w0 = base();
+        apply_benchmark_rerank(&mut w0, &TaskType::Review, &db, 0.0).unwrap();
+        assert_eq!(
+            w0[0].0, "claude_code@claude-sonnet-4-6",
+            "weight 0 = DT base"
+        );
+        let mut w1 = base();
+        apply_benchmark_rerank(&mut w1, &TaskType::Review, &db, 1.0).unwrap();
+        assert_eq!(
+            w1[0].0, "codex_cli@gpt-5.5",
+            "a large weight lets codex's higher rank_score overtake the DT base"
+        );
+    }
+
     fn test_tree_json() -> String {
         serde_json::json!({
             "n_features": 22,
