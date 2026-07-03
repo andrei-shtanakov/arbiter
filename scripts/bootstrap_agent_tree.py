@@ -55,7 +55,12 @@ FEATURE_NAMES: list[str] = [
 ]
 
 # Agent classes
-AGENTS: list[str] = ["claude_code@claude-sonnet-4-6", "codex_cli@gpt-5.5", "aider"]
+AGENTS: list[str] = [
+    "claude_code@claude-sonnet-4-6",
+    "codex_cli@gpt-5.5",
+    "aider",
+    "opencode@glm-5.1",
+]
 AGENT_IDX: dict[str, int] = {name: i for i, name in enumerate(AGENTS)}
 
 # Task type ordinals
@@ -193,8 +198,40 @@ def generate_expert_examples(
                         "claude_code@claude-sonnet-4-6",
                     )
 
-    # Rule 3: docs/review/research -> claude_code@claude-sonnet-4-6
-    for task in [TASK_DOCS, TASK_REVIEW, TASK_RESEARCH]:
+    # Rule 3a: python review -> opencode@glm-5.1 (PROMOTED 2026-07-03,
+    # ADR-003a D4: rank 0.915 vs codex 0.777 / claude 0.705 on golden
+    # 071f25d, runs=3, infra=0.0). Scope matches the evidence: review ×
+    # python only — other languages/types stay with the incumbents.
+    for complexity in range(5):
+        for priority in [PRI_LOW, PRI_NORMAL, PRI_HIGH, PRI_URGENT]:
+            for tokens in [30.0, 60.0, 90.0]:
+                add(
+                    make_base_features(
+                        task_type=TASK_REVIEW,
+                        language=LANG_PYTHON,
+                        complexity=complexity,
+                        priority=priority,
+                        estimated_tokens=tokens,
+                        requires_internet=1.0,
+                    ),
+                    "opencode@glm-5.1",
+                )
+
+    # Rule 3b: non-python review -> claude_code@claude-sonnet-4-6
+    for lang in [LANG_RUST, LANG_TYPESCRIPT, LANG_GO, LANG_MIXED, LANG_OTHER]:
+        for complexity in range(5):
+            add(
+                make_base_features(
+                    task_type=TASK_REVIEW,
+                    language=lang,
+                    complexity=complexity,
+                    requires_internet=1.0,
+                ),
+                "claude_code@claude-sonnet-4-6",
+            )
+
+    # Rule 3: docs/research -> claude_code@claude-sonnet-4-6
+    for task in [TASK_DOCS, TASK_RESEARCH]:
         for lang in [
             LANG_PYTHON,
             LANG_RUST,
