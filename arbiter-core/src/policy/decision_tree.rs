@@ -546,13 +546,14 @@ mod tests {
     fn bootstrap_tree_loads() {
         let tree = load_bootstrap_tree();
         assert_eq!(tree.n_features(), 22);
-        assert_eq!(tree.n_classes(), 3);
+        assert_eq!(tree.n_classes(), 4);
         assert_eq!(
             tree.class_names(),
             &[
                 "claude_code@claude-sonnet-4-6",
                 "codex_cli@gpt-5.5",
-                "aider"
+                "aider",
+                "opencode@glm-5.1"
             ]
         );
     }

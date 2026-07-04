@@ -217,18 +217,24 @@ def generate_expert_examples(
                     "opencode@glm-5.1",
                 )
 
-    # Rule 3b: non-python review -> claude_code@claude-sonnet-4-6
+    # Rule 3b: non-python review -> claude_code@claude-sonnet-4-6.
+    # Vary priority/tokens like Rule 3a so the tree cannot learn spurious
+    # splits on those features and leak non-python review traffic to GLM.
     for lang in [LANG_RUST, LANG_TYPESCRIPT, LANG_GO, LANG_MIXED, LANG_OTHER]:
         for complexity in range(5):
-            add(
-                make_base_features(
-                    task_type=TASK_REVIEW,
-                    language=lang,
-                    complexity=complexity,
-                    requires_internet=1.0,
-                ),
-                "claude_code@claude-sonnet-4-6",
-            )
+            for priority in [PRI_LOW, PRI_NORMAL, PRI_HIGH, PRI_URGENT]:
+                for tokens in [30.0, 60.0, 90.0]:
+                    add(
+                        make_base_features(
+                            task_type=TASK_REVIEW,
+                            language=lang,
+                            complexity=complexity,
+                            priority=priority,
+                            estimated_tokens=tokens,
+                            requires_internet=1.0,
+                        ),
+                        "claude_code@claude-sonnet-4-6",
+                    )
 
     # Rule 3: docs/research -> claude_code@claude-sonnet-4-6
     for task in [TASK_DOCS, TASK_RESEARCH]:
