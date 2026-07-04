@@ -20,6 +20,20 @@ max_concurrent = 3
 cost_per_hour = 0.20
 avg_duration_min = 12.0
 
+["opencode@glm-5.1"]
+# PROMOTED 2026-07-03 (ADR-003a D4 gate passed): rank 0.915 vs codex 0.777 /
+# claude 0.705 on golden 071f25d, runs=3, infra_error_rate=0.0 (after the
+# state-isolation fix atp#222). First open model in routing. Policy values
+# below are hand-authored initial policy (NOT bench-derived, per ADR-ECO-003):
+# narrow on purpose — "review" is the only benchmarked capability; widening
+# supports_types/languages is a separate policy decision.
+display_name = "opencode (GLM-5.1)"
+supports_languages = ["python"]
+supports_types = ["review"]
+max_concurrent = 2
+cost_per_hour = 0.10
+avg_duration_min = 15.0
+
 [aider]
 display_name = "Aider"
 supports_languages = ["python", "javascript"]
