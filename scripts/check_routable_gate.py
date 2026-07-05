@@ -189,13 +189,18 @@ def run_verify(db_path: Path, catalog_path: Path, eps: float) -> int:
         raise GateInputError(f"db not found: {db_path}")
     conn = sqlite3.connect(db_path)
     try:
-        has_table = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-            " AND name='benchmark_runs'"
-        ).fetchone()
-        if has_table is None:
-            raise GateInputError(f"db {db_path} has no benchmark_runs table")
-        return _verify_agents(conn, catalog, eps)
+        try:
+            has_table = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+                " AND name='benchmark_runs'"
+            ).fetchone()
+            if has_table is None:
+                raise GateInputError(f"db {db_path} has no benchmark_runs table")
+            return _verify_agents(conn, catalog, eps)
+        except sqlite3.DatabaseError as exc:
+            raise GateInputError(
+                f"unreadable or incompatible db {db_path}: {exc}"
+            ) from exc
     finally:
         conn.close()
 

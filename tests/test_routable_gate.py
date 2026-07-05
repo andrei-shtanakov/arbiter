@@ -457,3 +457,18 @@ class TestVerifyExitCodes:
     @pytest.mark.parametrize("eps", ["-1", "nan", "inf"])
     def test_invalid_eps_is_exit_2(self, tmp_path: Path, eps: str) -> None:
         assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, R1_R2, "--eps", eps) == 2
+
+    def test_garbage_db_file_is_exit_2(self, tmp_path: Path) -> None:
+        db = tmp_path / "garbage.db"
+        db.write_text("this is not a sqlite database at all")
+        catalog = write_catalog(tmp_path, AGENT_ROUTABLE_WITH_BENCH)
+        assert main(["verify", "--db", str(db), "--catalog", str(catalog)]) == 2
+
+    def test_incompatible_schema_is_exit_2(self, tmp_path: Path) -> None:
+        db = tmp_path / "old.db"
+        conn = sqlite3.connect(db)
+        conn.execute("CREATE TABLE benchmark_runs (run_id TEXT PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+        catalog = write_catalog(tmp_path, AGENT_ROUTABLE_WITH_BENCH)
+        assert main(["verify", "--db", str(db), "--catalog", str(catalog)]) == 2
