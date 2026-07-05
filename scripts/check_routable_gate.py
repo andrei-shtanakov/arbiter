@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 SUITE_RE = re.compile(r"^[0-9a-f]{7,64}$")
+ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 REQUIRED_BENCH_KEYS = ("benchmark", "suite", "rank_score", "date", "run_ids")
 DATE_FRESHNESS_DAYS = 7
 DEFAULT_EPS = 0.05
@@ -66,8 +67,10 @@ def _is_number(value: Any) -> bool:
 
 def _parse_iso_date(value: Any) -> date | None:
     """Strict ISO YYYY-MM-DD string -> date. TOML bare dates (tomllib returns
-    datetime.date) are rejected: the schema requires a quoted string."""
-    if not isinstance(value, str):
+    datetime.date) are rejected: the schema requires a quoted string.
+    fromisoformat alone is too lax (accepts "20260703" and week dates), so a
+    regex pre-check pins the exact format."""
+    if not isinstance(value, str) or not ISO_DATE_RE.fullmatch(value):
         return None
     try:
         return date.fromisoformat(value)

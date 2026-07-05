@@ -83,7 +83,10 @@ class TestValidateBench:
         problems = validate_bench(make_entry(bench=bench_with(suite=suite)))
         assert any("suite" in p for p in problems)
 
-    @pytest.mark.parametrize("d", ["03.07.2026", "2026-13-01", "2099-01-01", 20260703])
+    @pytest.mark.parametrize(
+        "d",
+        ["03.07.2026", "2026-13-01", "2099-01-01", 20260703, "20260703", "2026-W27-5"],
+    )
     def test_bad_or_future_date(self, d: Any) -> None:
         problems = validate_bench(make_entry(bench=bench_with(date=d)))
         assert any("date" in p for p in problems)
