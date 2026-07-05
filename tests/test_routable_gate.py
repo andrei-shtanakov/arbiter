@@ -9,6 +9,7 @@ docs/2026-07-05-routable-gate-design.md.
 from __future__ import annotations
 
 import copy
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -284,3 +285,175 @@ class TestGateExitCodes:
         assert (
             main(["gate", "--base-file", str(missing), "--head-file", str(head)]) == 2
         )
+
+
+# ============================================================================
+# Verify tests (Task 3)
+# ============================================================================
+
+BENCHMARK_RUNS_SCHEMA = """
+CREATE TABLE benchmark_runs (
+    run_id                TEXT PRIMARY KEY,
+    payload_version       TEXT NOT NULL,
+    benchmark_id          TEXT NOT NULL,
+    agent_id              TEXT NOT NULL,
+    ts                    TEXT NOT NULL,
+    score                 REAL NOT NULL,
+    score_components      TEXT NOT NULL,
+    total_tokens          INTEGER,
+    total_cost_usd        REAL,
+    duration_seconds      REAL NOT NULL,
+    per_task              TEXT NOT NULL,
+    per_task_total_count  INTEGER NOT NULL,
+    per_task_truncated    INTEGER NOT NULL,
+    inserted_at           TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
+
+def make_db(tmp_path: Path, rows: list[dict[str, Any]]) -> Path:
+    db_path = tmp_path / "arbiter.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(BENCHMARK_RUNS_SCHEMA)
+    for row in rows:
+        conn.execute(
+            "INSERT INTO benchmark_runs (run_id, payload_version, benchmark_id,"
+            " agent_id, ts, score, score_components, duration_seconds, per_task,"
+            " per_task_total_count, per_task_truncated)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                row["run_id"],
+                "1.0",
+                row.get("benchmark_id", "code-review"),
+                row.get("agent_id", "h1@m1"),
+                row.get("ts", "2026-07-03T10:00:00Z"),
+                row.get("score", 0.9),
+                row.get("score_components", '{"rank_score": 0.9}'),
+                60.0,
+                "[]",
+                0,
+                0,
+            ),
+        )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def write_catalog(tmp_path: Path, agents: str) -> Path:
+    path = tmp_path / "catalog.toml"
+    path.write_text(CATALOG_HEADER + agents)
+    return path
+
+
+def verify(
+    tmp_path: Path,
+    agents: str,
+    rows: list[dict[str, Any]],
+    *extra: str,
+) -> int:
+    db = make_db(tmp_path, rows)
+    catalog = write_catalog(tmp_path, agents)
+    argv = ["verify", "--db", str(db), "--catalog", str(catalog), *extra]
+    return main(argv)
+
+
+R1_R2 = [{"run_id": "r1"}, {"run_id": "r2"}]
+
+
+class TestVerify:
+    def test_valid_evidence_passes(self, tmp_path: Path, capsys: Any) -> None:
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, R1_R2) == 0
+        assert "VERIFY OK h1@m1" in capsys.readouterr().out
+
+    def test_fallback_to_score_when_no_rank_score_key(self, tmp_path: Path) -> None:
+        rows = [
+            {"run_id": "r1", "score": 0.9, "score_components": "{}"},
+            {"run_id": "r2", "score": 0.9, "score_components": "not json"},
+        ]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 0
+
+    def test_fallback_when_rank_score_not_numeric(self, tmp_path: Path) -> None:
+        # Строка и JSON-boolean — не числа (зеркало serde_json as_f64 -> None).
+        rows = [
+            {"run_id": "r1", "score": 0.9, "score_components": '{"rank_score": "x"}'},
+            {"run_id": "r2", "score": 0.9, "score_components": '{"rank_score": true}'},
+        ]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 0
+
+    def test_missing_run_id_fails(self, tmp_path: Path, capsys: Any) -> None:
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, [{"run_id": "r1"}]) == 1
+        assert "r2" in capsys.readouterr().out
+
+    def test_run_id_with_wrong_agent_fails(self, tmp_path: Path) -> None:
+        rows = [{"run_id": "r1"}, {"run_id": "r2", "agent_id": "other@m"}]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 1
+
+    def test_run_id_with_wrong_benchmark_fails(self, tmp_path: Path) -> None:
+        rows = [{"run_id": "r1"}, {"run_id": "r2", "benchmark_id": "other-bench"}]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 1
+
+    def test_mean_outside_eps_fails(self, tmp_path: Path, capsys: Any) -> None:
+        rows = [
+            {"run_id": "r1", "score_components": '{"rank_score": 0.5}'},
+            {"run_id": "r2", "score_components": '{"rank_score": 0.5}'},
+        ]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 1
+        assert "0.500" in capsys.readouterr().out  # фактическое среднее в выводе
+
+    def test_custom_eps_allows_wider_gap(self, tmp_path: Path) -> None:
+        rows = [
+            {"run_id": "r1", "score_components": '{"rank_score": 0.8}'},
+            {"run_id": "r2", "score_components": '{"rank_score": 0.8}'},
+        ]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows, "--eps", "0.2") == 0
+
+    def test_stale_date_fails(self, tmp_path: Path, capsys: Any) -> None:
+        rows = [
+            {"run_id": "r1", "ts": "2026-05-01T10:00:00Z"},
+            {"run_id": "r2", "ts": "2026-05-01T11:00:00Z"},
+        ]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 1
+        assert "date" in capsys.readouterr().out.lower()
+
+    def test_runtime_effective_score_reported(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        # Равные ts: детерминизм через второй ключ run_id DESC -> строка r2.
+        rows = [
+            {"run_id": "r1", "score_components": '{"rank_score": 0.9}'},
+            {"run_id": "r2", "score_components": '{"rank_score": 0.9}'},
+        ]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 0
+        assert "runtime-effective" in capsys.readouterr().out
+
+    def test_grandfathered_pair_warns_but_passes(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        assert verify(tmp_path, AGENT_ROUTABLE_NO_BENCH, []) == 0
+        assert "WARN h1@m1" in capsys.readouterr().out
+
+    def test_invalid_declaration_fails(self, tmp_path: Path) -> None:
+        agents = AGENT_ROUTABLE_WITH_BENCH.replace('suite = "0123abc"', 'suite = "zz"')
+        assert verify(tmp_path, agents, R1_R2) == 1
+
+
+class TestVerifyExitCodes:
+    def test_missing_db_is_exit_2(self, tmp_path: Path) -> None:
+        catalog = write_catalog(tmp_path, AGENT_ROUTABLE_WITH_BENCH)
+        argv = ["verify", "--db", str(tmp_path / "no.db"), "--catalog", str(catalog)]
+        assert main(argv) == 2
+
+    def test_db_without_table_is_exit_2(self, tmp_path: Path) -> None:
+        db = tmp_path / "empty.db"
+        sqlite3.connect(db).close()
+        catalog = write_catalog(tmp_path, AGENT_ROUTABLE_WITH_BENCH)
+        assert main(["verify", "--db", str(db), "--catalog", str(catalog)]) == 2
+
+    def test_corrupted_ts_is_exit_2(self, tmp_path: Path) -> None:
+        rows = [{"run_id": "r1", "ts": "not-a-timestamp"}, {"run_id": "r2"}]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 2
+
+    @pytest.mark.parametrize("eps", ["-1", "nan", "inf"])
+    def test_invalid_eps_is_exit_2(self, tmp_path: Path, eps: str) -> None:
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, R1_R2, "--eps", eps) == 2
