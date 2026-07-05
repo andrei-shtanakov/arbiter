@@ -75,7 +75,7 @@ jobs:
         run: uv run python -m pytest tests/ -v
 
   routable-gate:
-    name: Routable-flip gate (ADR-003a D4)
+    name: Routable-flip gate (ADR-ECO-003a D4)
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:

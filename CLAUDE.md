@@ -119,7 +119,7 @@ arbiter/
 │   ├── gen_agents_scaffold.py    # Scaffold agents.toml section keys from SSOT catalog (ADR-ECO-003)
 │   ├── ab_bench_rerank.py        # A/B check for the R-07 benchmark re-rank (ARBITER_BENCH_WEIGHT)
 │   ├── ingest_benchmark_payloads.py # One-off: feed ATP payloads through report_benchmark (R-07)
-│   └── check_routable_gate.py    # ADR-003a D4: routable-flip evidence gate (CI) + verify vs benchmark_runs (local)
+│   └── check_routable_gate.py    # ADR-ECO-003a D4: routable-flip evidence gate (CI) + verify vs benchmark_runs (local)
 ├── orchestrator/                 # Python MCP client
 │   ├── arbiter_client.py         # ArbiterClient class (subprocess + JSON-RPC)
 │   ├── types.py                  # Frozen dataclass DTOs for route/outcome/status responses

@@ -139,6 +139,15 @@ class TestCatalogLoading:
     def test_agents_map_empty_catalog(self) -> None:
         assert agents_map({}, "base") == {}
 
+    def test_agents_wrong_shape_raises(self) -> None:
+        # `agents = {}` instead of [[agents]] — malformed shape is exit-2 class.
+        with pytest.raises(GateInputError, match="array of tables"):
+            agents_map({"agents": {"harness": "h1"}}, "head")
+
+    def test_agents_entry_not_a_table_raises(self) -> None:
+        with pytest.raises(GateInputError, match="not a table"):
+            agents_map({"agents": ["h1@m1"]}, "base")
+
 
 CATALOG_HEADER = """
 [models."m1"]
@@ -452,6 +461,12 @@ class TestVerifyExitCodes:
 
     def test_corrupted_ts_is_exit_2(self, tmp_path: Path) -> None:
         rows = [{"run_id": "r1", "ts": "not-a-timestamp"}, {"run_id": "r2"}]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 2
+
+    def test_naive_ts_without_offset_is_exit_2(self, tmp_path: Path) -> None:
+        # Ingest (require_rfc3339, chrono) rejects naive timestamps, so a
+        # tz-less ts in the db is corrupted data — no silent assume-UTC.
+        rows = [{"run_id": "r1", "ts": "2026-07-03T10:00:00"}, {"run_id": "r2"}]
         assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 2
 
     @pytest.mark.parametrize("eps", ["-1", "nan", "inf"])

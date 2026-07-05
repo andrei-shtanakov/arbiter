@@ -54,9 +54,18 @@ def agent_id(entry: dict[str, Any]) -> str:
 
 def agents_map(catalog: dict[str, Any], label: str) -> dict[str, dict[str, Any]]:
     """[[agents]] list -> map by agent_id. Duplicates are exit-2 input errors:
-    a silent dict collapse would hide an entry from the gate (mirror of V4)."""
+    a silent dict collapse would hide an entry from the gate (mirror of V4).
+    A malformed shape (agents not a list, entry not a table) is exit-2 too —
+    the gate cannot reason about a catalog it cannot read."""
+    agents = catalog.get("agents", [])
+    if not isinstance(agents, list):
+        raise GateInputError(
+            f"[[agents]] must be an array of tables in {label} catalog"
+        )
     result: dict[str, dict[str, Any]] = {}
-    for entry in catalog.get("agents", []):
+    for entry in agents:
+        if not isinstance(entry, dict):
+            raise GateInputError(f"[[agents]] entry is not a table in {label} catalog")
         aid = agent_id(entry)
         if aid in result:
             raise GateInputError(f"duplicate agent_id {aid!r} in {label} catalog")
@@ -170,12 +179,16 @@ def _effective_score(score: float, components: str) -> float:
 
 
 def _parse_rfc3339(value: str) -> datetime | None:
+    """Strict RFC3339: an offset (or Z) is required. Ingest validates ts with
+    chrono's parse_from_rfc3339 (report_benchmark.rs::require_rfc3339), which
+    rejects naive timestamps — so a naive ts here is corrupted data, not a
+    value to silently patch with an assumed UTC."""
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        return None
     return parsed
 
 
