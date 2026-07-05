@@ -189,6 +189,122 @@ pub fn parse_catalog(toml_text: &str) -> Result<Catalog, CatalogError> {
     Ok(catalog)
 }
 
+/// Issue severity: errors fail `catalog check`, warnings do not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    /// Fatal for `catalog check` (exit 1).
+    Error,
+    /// Non-fatal diagnostic.
+    Warning,
+}
+
+/// A single validation finding (rule code V1..V7 + human message).
+#[derive(Debug, Clone)]
+pub struct Issue {
+    /// Severity of the finding.
+    pub severity: Severity,
+    /// Rule code, e.g. `"V3"` (see design §4).
+    pub code: &'static str,
+    /// Human-readable description.
+    pub message: String,
+}
+
+impl Issue {
+    fn error(code: &'static str, message: String) -> Self {
+        Self {
+            severity: Severity::Error,
+            code,
+            message,
+        }
+    }
+
+    fn warning(code: &'static str, message: String) -> Self {
+        Self {
+            severity: Severity::Warning,
+            code,
+            message,
+        }
+    }
+}
+
+/// Validate a parsed catalog against rules V1-V7 (design §4).
+/// Collects ALL issues — no short-circuit. V2+V3 together mirror
+/// conformance Check 5 (missing/retired enrollment references).
+pub fn validate(catalog: &Catalog) -> Vec<Issue> {
+    let mut issues = Vec::new();
+
+    // V7: unknown enum values (degrade-with-warning, design §3).
+    for (name, model) in &catalog.models {
+        if let ModelStatus::Other(s) = &model.status {
+            issues.push(Issue::warning(
+                "V7",
+                format!("model '{name}' has unknown status '{s}'"),
+            ));
+        }
+    }
+    for (name, harness) in &catalog.harnesses {
+        if let HarnessKind::Other(s) = &harness.kind {
+            issues.push(Issue::warning(
+                "V7",
+                format!("harness '{name}' has unknown kind '{s}'"),
+            ));
+        }
+    }
+
+    let mut seen_ids = std::collections::HashSet::new();
+    for agent in &catalog.agents {
+        let id = agent.agent_id();
+
+        // V4: duplicate agent_id.
+        if !seen_ids.insert(id.clone()) {
+            issues.push(Issue::error("V4", format!("duplicate agent_id '{id}'")));
+        }
+
+        // V1 + V5: harness reference and plane consistency.
+        match catalog.harnesses.get(&agent.harness) {
+            None => issues.push(Issue::error(
+                "V1",
+                format!(
+                    "agent '{id}' references undeclared harness '{}'",
+                    agent.harness
+                ),
+            )),
+            Some(harness) => {
+                if agent.routable && !harness.routable {
+                    issues.push(Issue::error(
+                        "V5",
+                        format!(
+                            "agent '{id}' is routable but harness '{}' is not",
+                            agent.harness
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // V2 + V3 + V6: model reference and lifecycle.
+        match catalog.models.get(&agent.model) {
+            None => issues.push(Issue::error(
+                "V2",
+                format!("agent '{id}' references undeclared model '{}'", agent.model),
+            )),
+            Some(model) => match &model.status {
+                ModelStatus::Retired => issues.push(Issue::error(
+                    "V3",
+                    format!("agent '{id}' references retired model '{}'", agent.model),
+                )),
+                ModelStatus::Deprecated => issues.push(Issue::warning(
+                    "V6",
+                    format!("agent '{id}' references deprecated model '{}'", agent.model),
+                )),
+                ModelStatus::Active | ModelStatus::Other(_) => {}
+            },
+        }
+    }
+
+    issues
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

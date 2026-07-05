@@ -1,0 +1,11 @@
+[models."m1"]
+vendor = "acme"
+status = "preview"
+
+[harnesses.h1]
+kind = "container"
+shim = "shims/h1.py"
+
+[[agents]]
+harness = "h1"
+model = "m1"

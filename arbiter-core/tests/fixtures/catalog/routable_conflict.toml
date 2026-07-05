@@ -1,0 +1,13 @@
+[models."m1"]
+vendor = "acme"
+status = "active"
+
+[harnesses.h1]
+kind = "cli"
+shim = "shims/h1.py"
+routable = false
+
+[[agents]]
+harness = "h1"
+model = "m1"
+routable = true

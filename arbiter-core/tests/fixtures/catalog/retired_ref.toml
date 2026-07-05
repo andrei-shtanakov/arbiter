@@ -1,0 +1,13 @@
+[models."old-model"]
+vendor = "acme"
+status = "retired"
+
+[harnesses.h1]
+kind = "cli"
+shim = "shims/h1.py"
+routable = true
+
+[[agents]]
+harness = "h1"
+model = "old-model"
+tested = true
