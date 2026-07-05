@@ -17,8 +17,14 @@ target/
 *.db-journal
 *.db-wal
 *.db-shm
+*.db.bak-*
 
 *.log
+# Observability emitter output (arbiter-core::obs, file-per-pid JSONL sinks)
+logs/
+
+# Stale FUSE artifacts (open-file placeholders left by fuse mounts)
+.fuse_hidden*
 
 COWORK_CONTEXT.md
 _cowork_output/
