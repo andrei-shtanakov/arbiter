@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 
-use arbiter_core::catalog::{self, Catalog, CatalogError, Severity};
+use arbiter_core::catalog::{self, Catalog, Severity};
 use arbiter_core::policy::decision_tree::DecisionTree;
 use arbiter_core::types::*;
 
@@ -687,18 +687,28 @@ fn get_rss_mb() -> f64 {
 // ---------------------------------------------------------------------------
 
 /// Resolve the catalog path from the real environment (the only place
-/// env/home are read; core stays pure).
-fn resolve_from_real_env() -> Result<catalog::ResolvedPath, CatalogError> {
+/// env/home are read; core stays pure). A non-UTF-8 `$ATP_CATALOG` is a
+/// loud error rather than being silently treated as unset (fail-loud);
+/// ambient vars (`XDG_CONFIG_HOME`, `HOME`) stay best-effort.
+fn resolve_from_real_env() -> Result<catalog::ResolvedPath, String> {
+    if let Some(raw) = std::env::var_os(catalog::CATALOG_ENV_VAR) {
+        if raw.to_str().is_none() {
+            return Err(format!(
+                "${} is set but is not valid UTF-8; cannot use it as a path",
+                catalog::CATALOG_ENV_VAR
+            ));
+        }
+    }
     let home = std::env::var("HOME")
         .ok()
         .filter(|v| !v.is_empty())
         .map(PathBuf::from);
-    catalog::resolve_path(|key| std::env::var(key).ok(), home.as_deref())
+    catalog::resolve_path(|key| std::env::var(key).ok(), home.as_deref()).map_err(|e| e.to_string())
 }
 
 /// Resolve + read + parse the user-config catalog (fail-loud).
 fn load_catalog() -> Result<(PathBuf, Catalog), String> {
-    let resolved = resolve_from_real_env().map_err(|e| e.to_string())?;
+    let resolved = resolve_from_real_env()?;
     if !resolved.path.exists() {
         return Err(catalog::missing_file_error(&resolved).to_string());
     }

@@ -24,7 +24,8 @@ pub enum CatalogError {
     /// No configuration layer present — fail-loud per ADR-003b D2.
     #[error(
         "model catalog not configured: set $ATP_CATALOG or create \
-         ~/.config/atp/agents-catalog.toml"
+         $XDG_CONFIG_HOME/atp/agents-catalog.toml \
+         (default: ~/.config/atp/agents-catalog.toml)"
     )]
     NotConfigured,
     /// $ATP_CATALOG points at a file that does not exist (no fallback).

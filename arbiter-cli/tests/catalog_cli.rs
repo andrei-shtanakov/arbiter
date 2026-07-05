@@ -104,3 +104,22 @@ fn empty_home_is_treated_as_unset() {
     // No cwd-relative path must be printed for an empty HOME.
     assert!(!String::from_utf8_lossy(&out.stdout).contains(".config"));
 }
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_atp_catalog_fails_loud() {
+    use std::os::unix::ffi::OsStringExt;
+
+    // A non-UTF-8 $ATP_CATALOG must be a loud error, not silently unset.
+    let bad = std::ffi::OsString::from_vec(vec![0xff, 0xfe]);
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_arbiter-cli"));
+    cmd.args(["catalog", "check"]);
+    cmd.env_remove("ATP_CATALOG")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("HOME");
+    cmd.env("ATP_CATALOG", &bad);
+    let out = cmd.output().expect("failed to run arbiter-cli");
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("UTF-8"), "stderr: {stderr}");
+}

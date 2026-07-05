@@ -1,7 +1,7 @@
 # Дизайн: Rust-загрузчик user-config каталога (ADR-ECO-003b)
 
 **Дата:** 2026-07-05 · **Статус:** Draft (на ревью)
-**Основание:** ADR-ECO-003b (`../_cowork_output/decisions/2026-07-02-adr-eco-003b-catalog-distribution.md`), рекомендация «arbiter (Rust): загрузчик того же TOML из user-config (`$ATP_CATALOG`/XDG); без bundled-дефолта».
+**Основание:** ADR-ECO-003b (`../_cowork_output/decisions/2026-07-02-adr-eco-003b-catalog-distribution.md` — dev-only полирепный sibling-workspace, в клоне репы отсутствует; см. правило про `_cowork_output` в CLAUDE.md), рекомендация «arbiter (Rust): загрузчик того же TOML из user-config (`$ATP_CATALOG`/XDG); без bundled-дефолта».
 
 ## 1. Объём
 
@@ -34,8 +34,13 @@ Runtime arbiter-mcp не меняется: сервер стартует на `c
 Ни одного слоя нет / файл не существует → **fail-loud**:
 
 ```
-model catalog not configured: set $ATP_CATALOG or create ~/.config/atp/agents-catalog.toml
+model catalog not configured: set $ATP_CATALOG or create $XDG_CONFIG_HOME/atp/agents-catalog.toml (default: ~/.config/atp/agents-catalog.toml)
 ```
+
+(упоминание `$XDG_CONFIG_HOME` — по ревью PR #39: при заданном XDG-переопределении
+подсказка только про `~/.config` вводила бы в заблуждение). Заданный, но не-UTF-8
+`$ATP_CATALOG` — громкая ошибка на стороне CLI, не «как будто unset»; ambient-переменные
+(`XDG_CONFIG_HOME`, `HOME`) с не-UTF-8 значениями трактуются как unset (best-effort).
 
 Никакого скрытого дефолта. `config/agents-catalog.toml` в репе — dev-SSOT-вендор
 для scaffold-генерации, runtime/CLI его **не читает** (граница из CLAUDE.md:
@@ -118,9 +123,11 @@ V2+V3 **вместе** зеркалят conformance Check 5 (`devtools/check-age
   - `parse_catalog(toml_text: &str) -> Result<Catalog, CatalogError>`;
   - `validate(&Catalog) -> Vec<Issue>`;
   - `resolve_path(env: impl Fn(&str) -> Option<String>, home: Option<&Path>)
-    -> Result<PathBuf, CatalogError>` — env и home инжектируются, функция
-    чистая и тестируемая без реального окружения. Проверка существования файла —
-    на стороне вызывающего (I/O).
+    -> Result<ResolvedPath, CatalogError>`, где `ResolvedPath { path: PathBuf,
+    source: CatalogSource }` — источник нужен, чтобы `missing_file_error`
+    различал «файл из `$ATP_CATALOG` не найден» и «не сконфигурировано» (§2).
+    env и home инжектируются, функция чистая и тестируемая без реального
+    окружения. Проверка существования файла — на стороне вызывающего (I/O).
 - **`arbiter-cli/src/main.rs`** — сабкоманда `catalog`: читает env/файл,
   вызывает core, печатает результат. Вывод команд в stdout (CLI — не MCP-канал),
   ошибки в stderr.
