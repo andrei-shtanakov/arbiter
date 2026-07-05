@@ -118,7 +118,8 @@ arbiter/
 │   ├── eval_tree.py              # Evaluate tree quality: DT vs round-robin vs always-best
 │   ├── gen_agents_scaffold.py    # Scaffold agents.toml section keys from SSOT catalog (ADR-ECO-003)
 │   ├── ab_bench_rerank.py        # A/B check for the R-07 benchmark re-rank (ARBITER_BENCH_WEIGHT)
-│   └── ingest_benchmark_payloads.py # One-off: feed ATP payloads through report_benchmark (R-07)
+│   ├── ingest_benchmark_payloads.py # One-off: feed ATP payloads through report_benchmark (R-07)
+│   └── check_routable_gate.py    # ADR-ECO-003a D4: routable-flip evidence gate (CI) + verify vs benchmark_runs (local)
 ├── orchestrator/                 # Python MCP client
 │   ├── arbiter_client.py         # ArbiterClient class (subprocess + JSON-RPC)
 │   ├── types.py                  # Frozen dataclass DTOs for route/outcome/status responses
@@ -255,12 +256,21 @@ uv run pytest orchestrator/tests/
    - `ab_bench_rerank.py`: A/B check for the benchmark re-rank (spawns arbiter-mcp with/without `ARBITER_BENCH_WEIGHT`)
    - `ingest_benchmark_payloads.py`: one-off ingest of ATP `report_benchmark_*.json` payloads via the `report_benchmark` tool
 
-5. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
+5. **`scripts/check_routable_gate.py`** — гейт routable-промоушна (ADR-ECO-003a D4)
+   - `gate --base-file A --head-file B` — диффовый evidence-declaration гейт
+     (CI-job `routable-gate`, только PR): флип `routable=true` обязан нести
+     валидный `bench`-блок; правило B защищает bench от удаления/порчи
+   - `verify --db arbiter.db [--eps 0.05]` — локальный data-gate: сверка
+     заявленного `rank_score` со средним эффективных скоров по `run_ids`
+     (семантика `get_benchmark_score`)
+   - Дизайн: `docs/2026-07-05-routable-gate-design.md`
+
+6. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
    - Pure stdlib: asyncio, json, subprocess
    - No external dependencies
    - `orchestrator/types.py` holds the frozen dataclass DTOs it returns
 
-6. **`orchestrator/tests/`** — end-to-end MCP protocol tests (`test_arbiter_integration.py`, `test_e2e_smoke.py`)
+7. **`orchestrator/tests/`** — end-to-end MCP protocol tests (`test_arbiter_integration.py`, `test_e2e_smoke.py`)
    - Dependencies: pytest, pytest-asyncio
 
 ### Python Coding Standards
@@ -311,7 +321,7 @@ See `arbiter-spec.md` sections 4.2 (`route_task`), 4.3 (`report_outcome`), 4.4 (
 | report_benchmark (Rust) | `cargo test --test report_benchmark_test` | `arbiter-mcp/tests/report_benchmark_test.rs` | 16 tests |
 | Obs contract (Rust) | `cargo test` | `arbiter-mcp/tests/contract_test.rs`, `arbiter-core/tests/` | 7 tests |
 | MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 13 tests |
-| Workspace (Python) | `uv run pytest tests/` | `tests/` | 19 tests |
+| Workspace (Python) | `uv run pytest tests/` | `tests/` | 95 tests |
 | Benchmarks (Rust) | `cargo run --bin arbiter-cli` | `arbiter-cli/src/` | 5 benchmarks |
 
 ### Performance Targets
