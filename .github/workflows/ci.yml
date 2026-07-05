@@ -71,6 +71,29 @@ jobs:
       - name: pytest (orchestrator)
         run: uv run python -m pytest orchestrator/tests/ -v
 
+      - name: pytest (workspace)
+        run: uv run python -m pytest tests/ -v
+
+  routable-gate:
+    name: Routable-flip gate (ADR-003a D4)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Extract base catalog
+        run: git show "${{ github.event.pull_request.base.sha }}:config/agents-catalog.toml" > /tmp/base-catalog.toml
+
+      - name: Run gate
+        run: python scripts/check_routable_gate.py gate --base-file /tmp/base-catalog.toml --head-file config/agents-catalog.toml
+
   release-binary:
     name: Build arbiter-mcp release binary (${{ matrix.target_name }})
     runs-on: ${{ matrix.runner }}

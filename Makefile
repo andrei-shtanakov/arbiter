@@ -47,6 +47,7 @@ ci: fmt-check lint test  ## CI pipeline
 
 test-python:  ## Python protocol tests
 	uv run pytest orchestrator/tests/ -v
+	uv run pytest tests/ -v
 
 bootstrap-tree:  ## Generate bootstrap decision tree
 	uv run python scripts/bootstrap_agent_tree.py

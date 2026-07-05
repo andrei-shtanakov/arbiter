@@ -32,6 +32,18 @@
   зафиксирован — закрывает открытый пункт ADR-003b)
 - Коммит: `6a966a0` (PR #39, squash; ветковый `25b0a94` в истории master не существует)
 
+### ADR-ECO-003a: гейт routable-PR на benchmark-эвиденс — ✅ закрыт
+
+- [x] `scripts/check_routable_gate.py`: `gate` (диффовые правила A/B,
+  evidence-declaration) + `verify` (data-gate против `benchmark_runs`,
+  runtime-семантика скора, mean по `run_ids`, eps 0.05)
+- [x] CI-job `routable-gate` (pull_request, base.sha) + `pytest tests/`
+  добавлен в CI python-job (закрыта pre-existing дыра: workspace-тесты не гонялись)
+- [x] Дизайн: `docs/2026-07-05-routable-gate-design.md` (v3, два раунда ревью)
+- Follow-ups (вне репы): конвенция `bench`-полей в SSOT-канон atp-platform;
+  бэкфил трёх grandfathered-пар
+- Коммит: `ab6f8b0` (код) — CI-коммит этого PR
+
 ### R-10: CI/CD (effort S) — ✅ закрыт
 
 - [x] **GitHub Actions**: `cargo test` + `cargo clippy` + `ruff` (`.github/workflows/ci.yml`, `fe4c033`)
