@@ -30,7 +30,7 @@
 - [x] `arbiter-cli catalog path|check|list` — CLI-поверхность fail-loud
 - [x] Дизайн: `docs/2026-07-05-catalog-loader-design.md` (XDG-namespace `atp/`
   зафиксирован — закрывает открытый пункт ADR-003b)
-- Коммит: `25b0a94`
+- Коммит: `6a966a0` (PR #39, squash; ветковый `25b0a94` в истории master не существует)
 
 ### R-10: CI/CD (effort S) — ✅ закрыт
 
