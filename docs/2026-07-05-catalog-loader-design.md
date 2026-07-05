@@ -80,8 +80,14 @@ pub struct AgentEntry {
 - `agent_id = "{harness}@{model}"` — производное, метод `AgentEntry::agent_id()`.
 - Неизвестные поля/секции **не** ломают парсинг (forward-compat: schema растёт
   на стороне SSOT, старый загрузчик не должен падать).
-- Незнакомое значение enum (`status`, `kind`) — ошибка парсинга (это не
-  forward-compat-поле, а контракт значений).
+- Незнакомое значение enum (`status`, `kind`) — **degrade-with-warning**, не
+  ошибка: парсится в fallback-вариант `Other(String)` (custom Deserialize),
+  валидация даёт warning V7. Обоснование: три загрузчика (ATP/Maestro/arbiter)
+  релизятся независимо; новое значение `status` в SSOT (напр. `preview`) не
+  должно валить весь каталог у не обновлённого arbiter — иначе forward-compat
+  декларируется, но не выполняется. Семантика консервативная: `Other`-статус
+  трактуется как «не active» (не даёт прав, которых мы не понимаем), `Other`-kind
+  информационен и ни на что не влияет.
 
 ## 4. Валидация (после парсинга)
 
@@ -89,10 +95,15 @@ pub struct AgentEntry {
 |---|---------|----------|
 | V1 | Каждый `[[agents]].harness` объявлен в `[harnesses.*]` | error |
 | V2 | Каждый `[[agents]].model` объявлен в `[models.*]` | error |
-| V3 | `[[agents]]`-ссылка на модель со `status="retired"` | error (зеркало conformance Check 5) |
+| V3 | `[[agents]]`-ссылка на модель со `status="retired"` | error |
 | V4 | Дубль `agent_id` среди `[[agents]]` | error |
 | V5 | `[[agents]].routable=true` при `harnesses.<h>.routable=false` | error (противоречие плоскостей) |
 | V6 | `[[agents]]`-ссылка на модель со `status="deprecated"` | warning (не фатально) |
+| V7 | Незнакомое значение `status`/`kind` (распарсено как `Other`) | warning (§3, degrade-with-warning) |
+
+V2+V3 **вместе** зеркалят conformance Check 5 (`devtools/check-agent-id-conformance.py`:
+«enrollment references missing/retired models»); там оба случая — failure, здесь
+оба — error, трактовка одной и той же строки совпадает.
 
 `validate(&Catalog) -> Vec<Issue>` где `Issue { severity: Error|Warning, code:
 "V1".., message }`. Ошибки не прерывают валидацию — собираем все.
@@ -110,9 +121,10 @@ pub struct AgentEntry {
 - **`arbiter-cli/src/main.rs`** — сабкоманда `catalog`: читает env/файл,
   вызывает core, печатает результат. Вывод команд в stdout (CLI — не MCP-канал),
   ошибки в stderr.
-- Новая зависимость `arbiter-core`: `toml` (уже используется в arbiter-mcp;
-  поднять в `[workspace.dependencies]`). Правило «no I/O в core» не нарушено —
-  модуль работает со строками и инжектированным env.
+- Зависимость: `toml` уже объявлен в `[workspace.dependencies]` (Cargo.toml:19);
+  единственное действие — `toml = { workspace = true }` в `arbiter-core/Cargo.toml`.
+  Правило «no I/O в core» не нарушено — модуль работает со строками и
+  инжектированным env.
 
 ## 6. CLI
 
@@ -127,14 +139,24 @@ arbiter-cli catalog list    # таблица: agent_id | tested | routable | mod
 Ненулевой exit при отсутствующем конфиге — это и есть fail-loud поверхность
 arbiter'а до появления runtime-потребителя.
 
+**Механика диспетча:** расширяем существующий hand-rolled разбор
+(`args[1] == "catalog"` → `match args[2]`), по образцу текущего `bench`.
+`clap` **не** вводим: три сабкоманды не оправдывают новую зависимость,
+стиль репы — минимум deps.
+
 ## 7. Тесты
 
-- **Парсинг/валидация** (unit, `arbiter-core`): фикстуры в
-  `arbiter-core/tests/fixtures/catalog/`:
-  - `valid.toml` — копия текущего SSOT-каталога (реалистичный happy-path);
-  - `retired_ref.toml` (V3), `unknown_harness.toml` (V1), `unknown_model.toml` (V2),
-    `dup_agent.toml` (V4), `routable_conflict.toml` (V5), `deprecated_ref.toml` (V6);
-  - пустой файл / битый TOML / незнакомый enum → `CatalogError`;
+- **Парсинг/валидация** (unit, `arbiter-core`):
+  - happy-path: тест читает **вендорную копию `config/agents-catalog.toml`
+    напрямую** (через `CARGO_MANIFEST_DIR/../config/...`) — НЕ ручную копию в
+    фикстуру. Третьего дрейфующего артефакта не появляется (§8 Риск №1);
+    тесты — не shipped-код, читать in-repo dev-вендор им можно. Ассерты — на
+    инварианты (парсится, 0 errors, есть routable-агенты), не на точные счётчики.
+  - битые случаи — фикстуры в `arbiter-core/tests/fixtures/catalog/`:
+    `retired_ref.toml` (V3), `unknown_harness.toml` (V1), `unknown_model.toml` (V2),
+    `dup_agent.toml` (V4), `routable_conflict.toml` (V5), `deprecated_ref.toml` (V6),
+    `unknown_enum.toml` (V7 — парсится, warning);
+  - пустой файл / битый TOML → `CatalogError`;
   - незнакомое поле → парсится без ошибки.
 - **Резолюция** (unit): все ветки D2 через инжектированный env
   (`ATP_CATALOG` задан; только XDG; только home; ничего → ошибка с текстом,
