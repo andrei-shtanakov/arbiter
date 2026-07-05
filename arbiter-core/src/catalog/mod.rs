@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use thiserror::Error;
@@ -39,6 +39,71 @@ pub enum CatalogError {
     /// Structurally valid TOML but no catalog content at all.
     #[error("catalog is empty: no models, harnesses or agents declared")]
     Empty,
+}
+
+/// Which resolution layer produced the path (ADR-003b D2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatalogSource {
+    /// Layer 1: explicit `$ATP_CATALOG` path (no fallback below it).
+    AtpCatalogEnv,
+    /// Layer 2: `$XDG_CONFIG_HOME/atp/agents-catalog.toml`.
+    XdgConfigHome,
+    /// Layer 3: `~/.config/atp/agents-catalog.toml`.
+    HomeDefault,
+}
+
+/// A resolved candidate path plus the layer that produced it.
+#[derive(Debug, Clone)]
+pub struct ResolvedPath {
+    /// The single candidate path (existence NOT checked here — no I/O).
+    pub path: PathBuf,
+    /// Resolution layer, used to pick the right missing-file error.
+    pub source: CatalogSource,
+}
+
+/// Resolve the catalog path per ADR-003b D2. Pure: env access and home
+/// dir are injected. Returns exactly one candidate; the caller checks
+/// file existence and maps a miss via [`missing_file_error`].
+/// Empty env values are treated as unset. Layers 2-3 are one XDG layer
+/// with a default: the choice depends only on whether `XDG_CONFIG_HOME`
+/// is set, never on file existence.
+pub fn resolve_path<F>(env: F, home: Option<&Path>) -> Result<ResolvedPath, CatalogError>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let non_empty = |key: &str| env(key).filter(|v| !v.is_empty());
+
+    if let Some(explicit) = non_empty(CATALOG_ENV_VAR) {
+        return Ok(ResolvedPath {
+            path: PathBuf::from(explicit),
+            source: CatalogSource::AtpCatalogEnv,
+        });
+    }
+    if let Some(xdg) = non_empty("XDG_CONFIG_HOME") {
+        return Ok(ResolvedPath {
+            path: PathBuf::from(xdg).join(XDG_SUBPATH),
+            source: CatalogSource::XdgConfigHome,
+        });
+    }
+    if let Some(home) = home {
+        return Ok(ResolvedPath {
+            path: home.join(".config").join(XDG_SUBPATH),
+            source: CatalogSource::HomeDefault,
+        });
+    }
+    Err(CatalogError::NotConfigured)
+}
+
+/// Map a missing file at the resolved path to the right error:
+/// an explicit `$ATP_CATALOG` miss names the path (no silent fallback);
+/// an XDG-layer miss means the catalog simply is not configured.
+pub fn missing_file_error(resolved: &ResolvedPath) -> CatalogError {
+    match resolved.source {
+        CatalogSource::AtpCatalogEnv => CatalogError::EnvFileNotFound {
+            path: resolved.path.clone(),
+        },
+        CatalogSource::XdgConfigHome | CatalogSource::HomeDefault => CatalogError::NotConfigured,
+    }
 }
 
 /// Model lifecycle status (Plane 1). Unknown values degrade to `Other`
@@ -400,5 +465,83 @@ mod tests {
         assert!(cat.harnesses["h"].model_flag.is_none());
         assert!(!cat.agents[0].tested);
         assert!(!cat.agents[0].routable);
+    }
+
+    fn env_of<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |key| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| v.to_string())
+        }
+    }
+
+    #[test]
+    fn resolve_prefers_atp_catalog_env() {
+        let env = env_of(&[
+            ("ATP_CATALOG", "/team/catalog.toml"),
+            ("XDG_CONFIG_HOME", "/xdg"),
+        ]);
+        let r = resolve_path(env, Some(Path::new("/home/u"))).unwrap();
+        assert_eq!(r.path, PathBuf::from("/team/catalog.toml"));
+        assert!(matches!(r.source, CatalogSource::AtpCatalogEnv));
+    }
+
+    #[test]
+    fn resolve_uses_xdg_config_home_when_set() {
+        let env = env_of(&[("XDG_CONFIG_HOME", "/xdg")]);
+        let r = resolve_path(env, Some(Path::new("/home/u"))).unwrap();
+        assert_eq!(r.path, PathBuf::from("/xdg/atp/agents-catalog.toml"));
+        assert!(matches!(r.source, CatalogSource::XdgConfigHome));
+    }
+
+    #[test]
+    fn resolve_falls_back_to_home_config() {
+        let env = env_of(&[]);
+        let r = resolve_path(env, Some(Path::new("/home/u"))).unwrap();
+        assert_eq!(
+            r.path,
+            PathBuf::from("/home/u/.config/atp/agents-catalog.toml")
+        );
+        assert!(matches!(r.source, CatalogSource::HomeDefault));
+    }
+
+    #[test]
+    fn empty_env_values_are_treated_as_unset() {
+        let env = env_of(&[("ATP_CATALOG", ""), ("XDG_CONFIG_HOME", "")]);
+        let r = resolve_path(env, Some(Path::new("/home/u"))).unwrap();
+        assert!(matches!(r.source, CatalogSource::HomeDefault));
+    }
+
+    #[test]
+    fn resolve_fails_loud_when_nothing_configured() {
+        let env = env_of(&[]);
+        let err = resolve_path(env, None).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("$ATP_CATALOG"), "hint $ATP_CATALOG: {msg}");
+        assert!(
+            msg.contains("~/.config/atp/agents-catalog.toml"),
+            "hint XDG path: {msg}"
+        );
+    }
+
+    #[test]
+    fn missing_file_error_depends_on_source() {
+        let env_resolved = ResolvedPath {
+            path: PathBuf::from("/team/catalog.toml"),
+            source: CatalogSource::AtpCatalogEnv,
+        };
+        let msg = missing_file_error(&env_resolved).to_string();
+        assert!(msg.contains("/team/catalog.toml"));
+        assert!(msg.contains("$ATP_CATALOG"));
+
+        let xdg_resolved = ResolvedPath {
+            path: PathBuf::from("/xdg/atp/agents-catalog.toml"),
+            source: CatalogSource::XdgConfigHome,
+        };
+        assert!(matches!(
+            missing_file_error(&xdg_resolved),
+            CatalogError::NotConfigured
+        ));
     }
 }
