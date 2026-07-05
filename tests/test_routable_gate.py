@@ -18,6 +18,8 @@ from scripts.check_routable_gate import (
     GateInputError,
     agents_map,
     load_catalog,
+    main,
+    run_gate,  # noqa: F401
     validate_bench,
 )
 
@@ -135,3 +137,150 @@ class TestCatalogLoading:
 
     def test_agents_map_empty_catalog(self) -> None:
         assert agents_map({}, "base") == {}
+
+
+CATALOG_HEADER = """
+[models."m1"]
+vendor = "v"
+status = "active"
+
+[harnesses.h1]
+kind = "cli"
+shim = "s.py"
+routable = true
+"""
+
+AGENT_NOT_ROUTABLE = """
+[[agents]]
+harness = "h1"
+model = "m1"
+tested = true
+routable = false
+"""
+
+AGENT_ROUTABLE_NO_BENCH = """
+[[agents]]
+harness = "h1"
+model = "m1"
+tested = true
+routable = true
+"""
+
+BENCH_LINE = (
+    'bench = { benchmark = "code-review", suite = "0123abc", '
+    'rank_score = 0.9, date = "2026-07-03", run_ids = ["r1", "r2"] }'
+)
+
+AGENT_ROUTABLE_WITH_BENCH = AGENT_ROUTABLE_NO_BENCH + BENCH_LINE + "\n"
+
+
+def write_pair(tmp_path: Path, base_agents: str, head_agents: str) -> tuple[Path, Path]:
+    base = tmp_path / "base.toml"
+    head = tmp_path / "head.toml"
+    base.write_text(CATALOG_HEADER + base_agents)
+    head.write_text(CATALOG_HEADER + head_agents)
+    return base, head
+
+
+def gate(tmp_path: Path, base_agents: str, head_agents: str) -> int:
+    base, head = write_pair(tmp_path, base_agents, head_agents)
+    return main(["gate", "--base-file", str(base), "--head-file", str(head)])
+
+
+class TestGateRuleA:
+    def test_flip_with_valid_bench_passes(self, tmp_path: Path, capsys: Any) -> None:
+        assert gate(tmp_path, AGENT_NOT_ROUTABLE, AGENT_ROUTABLE_WITH_BENCH) == 0
+        assert "GATE OK: 1 gated change(s)" in capsys.readouterr().out
+
+    def test_flip_without_bench_fails(self, tmp_path: Path, capsys: Any) -> None:
+        assert gate(tmp_path, AGENT_NOT_ROUTABLE, AGENT_ROUTABLE_NO_BENCH) == 1
+        assert "GATE FAIL h1@m1" in capsys.readouterr().out
+
+    def test_new_routable_entry_without_bench_fails(self, tmp_path: Path) -> None:
+        assert gate(tmp_path, "", AGENT_ROUTABLE_NO_BENCH) == 1
+
+    def test_new_routable_entry_with_bench_passes(self, tmp_path: Path) -> None:
+        assert gate(tmp_path, "", AGENT_ROUTABLE_WITH_BENCH) == 0
+
+    def test_flip_with_tested_false_fails(self, tmp_path: Path, capsys: Any) -> None:
+        head = AGENT_ROUTABLE_WITH_BENCH.replace("tested = true", "tested = false")
+        assert gate(tmp_path, AGENT_NOT_ROUTABLE, head) == 1
+        assert "tested" in capsys.readouterr().out
+
+    def test_missing_routable_in_base_is_false(self, tmp_path: Path) -> None:
+        base = AGENT_NOT_ROUTABLE.replace("routable = false\n", "")
+        assert gate(tmp_path, base, AGENT_ROUTABLE_NO_BENCH) == 1
+
+    def test_no_flip_is_ok(self, tmp_path: Path, capsys: Any) -> None:
+        assert gate(tmp_path, AGENT_NOT_ROUTABLE, AGENT_NOT_ROUTABLE) == 0
+        assert "no gated changes" in capsys.readouterr().out
+
+    def test_non_routable_addition_is_ok(self, tmp_path: Path) -> None:
+        assert gate(tmp_path, "", AGENT_NOT_ROUTABLE) == 0
+
+    def test_demote_and_delete_are_ok(self, tmp_path: Path) -> None:
+        assert gate(tmp_path, AGENT_ROUTABLE_WITH_BENCH, AGENT_NOT_ROUTABLE) == 0
+        assert gate(tmp_path, AGENT_ROUTABLE_WITH_BENCH, "") == 0
+
+    def test_grandfathered_untouched_routable_is_ok(self, tmp_path: Path) -> None:
+        # routable=true в base и head, bench нет нигде — молча проходит.
+        assert gate(tmp_path, AGENT_ROUTABLE_NO_BENCH, AGENT_ROUTABLE_NO_BENCH) == 0
+
+
+class TestGateRuleB:
+    def test_removing_bench_from_routable_fails(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        assert gate(tmp_path, AGENT_ROUTABLE_WITH_BENCH, AGENT_ROUTABLE_NO_BENCH) == 1
+        assert "evidence removed" in capsys.readouterr().out
+
+    def test_valid_bench_change_passes(self, tmp_path: Path) -> None:
+        head = AGENT_ROUTABLE_WITH_BENCH.replace(
+            'run_ids = ["r1", "r2"]', 'run_ids = ["r3", "r4"]'
+        )
+        assert gate(tmp_path, AGENT_ROUTABLE_WITH_BENCH, head) == 0
+
+    def test_invalid_bench_change_fails(self, tmp_path: Path) -> None:
+        head = AGENT_ROUTABLE_WITH_BENCH.replace('suite = "0123abc"', 'suite = "foo"')
+        assert gate(tmp_path, AGENT_ROUTABLE_WITH_BENCH, head) == 1
+
+    def test_backfill_valid_bench_on_routable_passes(self, tmp_path: Path) -> None:
+        assert gate(tmp_path, AGENT_ROUTABLE_NO_BENCH, AGENT_ROUTABLE_WITH_BENCH) == 0
+
+    def test_backfill_invalid_bench_fails(self, tmp_path: Path) -> None:
+        head = AGENT_ROUTABLE_WITH_BENCH.replace("rank_score = 0.9", "rank_score = 1.5")
+        assert gate(tmp_path, AGENT_ROUTABLE_NO_BENCH, head) == 1
+
+    def test_unchanged_bench_not_revalidated(self, tmp_path: Path) -> None:
+        # bench одинаков в base и head — правило B не трогает запись, даже
+        # если бы валидатор к ней придрался (например tested=false исторически).
+        stale = AGENT_ROUTABLE_WITH_BENCH.replace("tested = true", "tested = false")
+        assert gate(tmp_path, stale, stale) == 0
+
+
+class TestGateExitCodes:
+    def test_duplicate_agent_id_in_head_is_exit_2(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        head = AGENT_ROUTABLE_NO_BENCH + AGENT_ROUTABLE_NO_BENCH
+        assert gate(tmp_path, "", head) == 2
+        assert "duplicate" in capsys.readouterr().err
+
+    def test_duplicate_agent_id_in_base_is_exit_2(self, tmp_path: Path) -> None:
+        base = AGENT_NOT_ROUTABLE + AGENT_NOT_ROUTABLE
+        assert gate(tmp_path, base, "") == 2
+
+    def test_broken_toml_is_exit_2(self, tmp_path: Path) -> None:
+        base = tmp_path / "base.toml"
+        head = tmp_path / "head.toml"
+        base.write_text("[agents\nboom")
+        head.write_text(CATALOG_HEADER)
+        assert main(["gate", "--base-file", str(base), "--head-file", str(head)]) == 2
+
+    def test_missing_file_is_exit_2(self, tmp_path: Path) -> None:
+        head = tmp_path / "head.toml"
+        head.write_text(CATALOG_HEADER)
+        missing = tmp_path / "nope.toml"
+        assert (
+            main(["gate", "--base-file", str(missing), "--head-file", str(head)]) == 2
+        )

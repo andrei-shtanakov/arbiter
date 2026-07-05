@@ -14,8 +14,10 @@ Score semantics mirror ``get_benchmark_score``
 
 from __future__ import annotations
 
+import argparse
 import math
 import re
+import sys
 import tomllib
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -144,3 +146,70 @@ def validate_bench(entry: dict[str, Any]) -> list[str]:
             problems.append("bench.runs must equal len(bench.run_ids)")
 
     return problems
+
+
+def run_gate(base_path: Path, head_path: Path) -> int:
+    """Diff-based declaration gate (design §2, rules A and B). Returns 0/1."""
+    base = agents_map(load_catalog(base_path), "base")
+    head = agents_map(load_catalog(head_path), "head")
+
+    failures: list[tuple[str, str]] = []
+    gated = 0
+    for aid, entry in head.items():
+        if entry.get("routable") is not True:
+            continue
+        base_entry = base.get(aid)
+        promoted = base_entry is None or base_entry.get("routable") is not True
+
+        if promoted:
+            # Rule A: flip or new routable pair requires full valid evidence.
+            gated += 1
+            failures.extend((aid, p) for p in validate_bench(entry))
+            continue
+
+        # Rule B: bench on a routable entry is an audit record.
+        base_bench = base_entry.get("bench")
+        head_bench = entry.get("bench")
+        if base_bench is not None and head_bench is None:
+            gated += 1
+            failures.append(
+                (aid, "evidence removed: bench deleted from a routable entry")
+            )
+        elif head_bench is not None and head_bench != base_bench:
+            # Changed or backfilled bench revalidates in full.
+            gated += 1
+            failures.extend((aid, p) for p in validate_bench(entry))
+
+    for aid, problem in failures:
+        print(f"GATE FAIL {aid}: {problem}")
+    if failures:
+        return 1
+    if gated:
+        print(f"GATE OK: {gated} gated change(s) with valid evidence")
+    else:
+        print("GATE OK: no gated changes")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point; returns the process exit code (0/1/2)."""
+    parser = argparse.ArgumentParser(
+        prog="check_routable_gate",
+        description="Routable-flip benchmark-evidence gate (ADR-ECO-003a D4)",
+    )
+    sub = parser.add_subparsers(dest="mode", required=True)
+
+    gate_parser = sub.add_parser("gate", help="diff-based declaration gate (CI)")
+    gate_parser.add_argument("--base-file", required=True, type=Path)
+    gate_parser.add_argument("--head-file", required=True, type=Path)
+
+    args = parser.parse_args(argv)
+    try:
+        return run_gate(args.base_file, args.head_file)
+    except GateInputError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
