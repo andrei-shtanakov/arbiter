@@ -94,3 +94,13 @@ fn unknown_subcommand_exits_nonzero() {
     let out = run_catalog(&["frobnicate"], &[]);
     assert_eq!(out.status.code(), Some(1));
 }
+
+#[test]
+fn empty_home_is_treated_as_unset() {
+    let out = run_catalog(&["path"], &[("HOME", "")]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("not configured"), "stderr: {stderr}");
+    // No cwd-relative path must be printed for an empty HOME.
+    assert!(!String::from_utf8_lossy(&out.stdout).contains(".config"));
+}

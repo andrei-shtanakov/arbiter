@@ -70,7 +70,7 @@ arbiter/
 │       ├── lib.rs                # Crate root, module declarations
 │       ├── types.rs              # AgentFeatureVector (22-dim), AgentAction, AgentState
 │       ├── error.rs              # ArbiterError type (thiserror)
-│       ├── catalog/mod.rs        # User-config agents-catalog loader (ADR-ECO-003b): parse, validate V1-7, resolve $ATP_CATALOG→XDG
+│       ├── catalog/mod.rs        # User-config agents-catalog loader (ADR-ECO-003b): parse, validate V1-V7, resolve $ATP_CATALOG→XDG
 │       ├── traits.rs             # Shared traits (PolicyEngine, InvariantChecker)
 │       ├── obs.rs                 # Observability emitter (file-per-pid JSONL sinks, OTel Logs)
 │       ├── policy/

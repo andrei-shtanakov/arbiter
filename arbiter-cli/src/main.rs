@@ -689,7 +689,10 @@ fn get_rss_mb() -> f64 {
 /// Resolve the catalog path from the real environment (the only place
 /// env/home are read; core stays pure).
 fn resolve_from_real_env() -> Result<catalog::ResolvedPath, CatalogError> {
-    let home = std::env::var("HOME").ok().map(PathBuf::from);
+    let home = std::env::var("HOME")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from);
     catalog::resolve_path(|key| std::env::var(key).ok(), home.as_deref())
 }
 
