@@ -1,6 +1,6 @@
 # Дизайн: гейт routable-PR на benchmark-эвиденс (ADR-ECO-003a D4)
 
-**Дата:** 2026-07-05 · **Статус:** Draft v2 (после ревью; v1 — `a1cfba8`)
+**Дата:** 2026-07-05 · **Статус:** Draft v3 (два раунда ревью; v1 — `a1cfba8`, v2 — `0189702`)
 **Основание:** ADR-ECO-003a (`../_cowork_output/decisions/2026-07-02-adr-eco-003a-model-discovery-adoption.md` — dev-only sibling-workspace, в клоне отсутствует), arbiter-действие: «Gate merge: routable-PR (Plane 2) блокируется до наличия `rank_score` на golden-suite» (D4).
 **Прецедент:** промоушн `opencode@glm-5.1` (PR #38 ↔ atp-platform#223) — гейт пройден вручную, эвиденс в commit message и комментарии каталога (rank 0.915 vs 0.777/0.705, golden `071f25d`, runs=3).
 
@@ -19,8 +19,10 @@
 
 Полное «D4 в одном CI» недостижимо без внешнего immutable evidence store;
 привязка через обязательные `run_ids` (§3) сужает разрыв: декларация ссылается
-на конкретные идемпотентные строки (`run_id` PK, `ON CONFLICT DO NOTHING`),
-и её подделка обнаруживается первым же запуском `verify`.
+на стабильные идентификаторы строк в **доверенной локальной БД** (`run_id` PK;
+`ON CONFLICT DO NOTHING` даёт идемпотентность ingest'а, но НЕ неизменяемость
+строк — это не immutable evidence), и её подделка обнаруживается первым же
+запуском `verify`.
 
 ## 1. Объём
 
@@ -46,22 +48,43 @@
 
 ## 2. Триггер гейта
 
-Гейт анализирует пару версий `config/agents-catalog.toml` (base vs head) и
-срабатывает на **каждую** `[[agents]]`-запись, которая:
-
-1. существовала в base с `routable = false` (или без поля — default false) и
-   имеет `routable = true` в head («флип»), либо
-2. отсутствовала в base и добавлена в head с `routable = true` («новая routable-пара»).
-
+Гейт анализирует пару версий `config/agents-catalog.toml` (base vs head).
 Ключ сопоставления записей — `agent_id = "{harness}@{model}"`.
 **Дубликаты `agent_id` в base или head → exit 2** (невалидный вход: свёртка
 списка в map молча скрыла бы запись; это зеркало правила V4 Rust-валидатора).
+
+**Правило A — промоушн.** Запись, которая:
+
+1. существовала в base с `routable = false` (или без поля — default false) и
+   имеет `routable = true` в head («флип»), либо
+2. отсутствовала в base и добавлена в head с `routable = true` («новая routable-пара»),
+
+обязана нести `tested = true` и валидный `bench`-блок (§3).
+
+**Правило B — защита аудиторской записи (анти-обход).** `bench` у
+routable-записи — долговременная аудиторская запись; последующие PR не могут
+её тихо снести или испортить. Для каждой записи с `routable = true` в head:
+
+1. если в base у неё был `bench`, а в head его нет → FAIL («evidence removed»);
+2. если `bench` изменён (любое поле) или добавлен к уже-routable записи
+   (сценарий SSOT-бэкфила) → новый `bench` проходит **полную**
+   schema-валидацию §3 (+`tested = true`);
+3. замена `run_ids`/`rank_score` **допустима** — это декларация ре-бенчмарка
+   (модель перегнали на suite заново); гейт требует только валидность новой
+   декларации, а её правдивость закрывают те же human-gate (ревью PR) +
+   локальный `verify`, что и при первичном промоушне. Отдельного механизма
+   «повторного подтверждения» не вводим (YAGNI: тот же контур доверия).
+
+Записи с `routable = false` в head правилом B не покрываются: снятая с
+роутинга пара может нести или не нести `bench` — он более не является
+управляющей записью (история остаётся в git).
 
 **Не гейтится:**
 - `harnesses.*.routable` — флаг «может ли harness роутиться в принципе»; в
   роутинг вводит только флип пары (Plane 3).
 - `true → false` (снятие с роутинга) и удаление записей.
-- Существующие routable-пары без изменений — **grandfathered** (три текущие:
+- Routable-пары, у которых ни `routable`-флаг, ни `bench` не менялись —
+  **grandfathered** без `bench` проходят молча (три текущие:
   `claude_code@claude-sonnet-4-6`, `codex_cli@gpt-5.5`, `opencode@glm-5.1`).
 
 **Почему диффовый, а не инвентаризационный:** каталог обязан оставаться
@@ -89,7 +112,7 @@ bench    = { benchmark = "code-review", suite = "071f25d", rank_score = 0.915, d
 | `benchmark` | string | да | непустой; это `benchmark_id` из `benchmark_runs` (task-type-скоуп, напр. `code-review`) |
 | `suite` | string | да | строгий формат digest: `^[0-9a-f]{7,64}$` (lowercase hex, пин `SUITE.lock`, atp#215); произвольная строка не проходит |
 | `rank_score` | float | да | `math.isfinite` И в `[0, 1]` (TOML допускает `nan`/`inf` — голая проверка диапазона обходится); `bool` — отвергается (в Python `bool` — подкласс `int`) |
-| `date` | string | да | ISO `YYYY-MM-DD`; **не в будущем** (vs текущая дата UTC) |
+| `date` | string | да | ISO `YYYY-MM-DD`; **не в будущем** — сравнение строго с `datetime.now(timezone.utc).date()`, не с локальной датой процесса |
 | `run_ids` | array of string | да | непустой список непустых строк без дубликатов; конкретные `run_id` строк `benchmark_runs`, по которым получен `rank_score` |
 | `runs` | int | нет | если задан — обязан равняться `len(run_ids)` |
 | `evidence` | string | нет | URI/путь на immutable-артефакт свипа (напр. `_bench_output/...` или URL) — рекомендуется |
@@ -127,10 +150,9 @@ python scripts/check_routable_gate.py gate \
 ```
 
 - Парсит обе версии (`tomllib`), проверяет отсутствие дубликатов `agent_id`,
-  находит флипы/новые routable-пары (§2).
-- Для каждой требует `tested = true` и валидный `bench`-блок (§3).
+  применяет правила A (промоушн) и B (защита `bench`) из §2.
 - Вывод: `GATE FAIL <agent_id>: <причина>` на нарушение, либо
-  `GATE OK: no routable flips` / `GATE OK: N flip(s) with valid evidence`.
+  `GATE OK: no gated changes` / `GATE OK: N gated change(s) with valid evidence`.
 - База недоступна и не нужна: существование данных в этом режиме **не**
   проверяется (см. §0).
 
@@ -141,6 +163,8 @@ python scripts/check_routable_gate.py verify \
     --db arbiter.db [--eps 0.05] [--catalog config/agents-catalog.toml]
 ```
 
+`--eps` валидируется: конечное число (`math.isfinite`) и `>= 0`, иначе exit 2.
+
 Для каждой routable-пары каталога **с** `bench`-блоком:
 
 1. **Существование:** каждая `run_id` из `bench.run_ids` присутствует в
@@ -150,8 +174,11 @@ python scripts/check_routable_gate.py verify \
    (`get_benchmark_score`, `arbiter-mcp/src/db.rs:817-841`): для строки
    эффективный скор = `score_components.rank_score`, если `score_components` —
    валидный JSON с числовым `rank_score`; иначе fallback на колонку `score`;
-   результат клампится в `[0, 1]`. NULL/битый JSON/отсутствующий ключ →
-   fallback, не ошибка (как в runtime).
+   результат клампится в `[0, 1]`. Битый JSON / отсутствующий ключ /
+   нечисловой `rank_score` (в т.ч. **JSON-boolean** — зеркало
+   `serde_json::Value::as_f64`, который на Bool возвращает None) → fallback,
+   не ошибка (как в runtime). Схема объявляет колонку `TEXT NOT NULL`
+   (db.rs:943) — NULL-кейс на реальных данных невозможен.
 3. **Агрегация определена явно:** заявленный `bench.rank_score` сверяется с
    **арифметическим средним эффективных скоров по строкам `run_ids`**
    (`|mean − заявленный| ≤ eps`, default **0.05**, переопределяется флагом).
@@ -159,6 +186,8 @@ python scripts/check_routable_gate.py verify \
    декларацией.
 4. **Свежесть даты:** `|bench.date − max(ts по run_ids)| ≤ 7 дней` → иначе FAIL
    (дата эвиденса обязана соответствовать реальному времени прогонов).
+   Ingest гарантирует RFC3339 в `ts` — невалидный `ts` в строке из `run_ids`
+   трактуется как повреждённые данные → **exit 2**, не policy-mismatch.
 5. **Информационно (не критерий):** печатается runtime-эффективный скор — по
    последней строке `(agent_id, benchmark_id)` с детерминированной сортировкой
    `ORDER BY ts DESC, run_id DESC` (второй ключ — против недетерминизма при
@@ -234,6 +263,11 @@ pytest в `tests/test_routable_gate.py` (скрипт импортируется
   `inf` (isfinite); `rank_score = true` (bool-не-число); `date = "03.07.2026"`;
   `date` в будущем; `suite = "foo"` (не hex-digest); пустой `run_ids`; дубликаты
   внутри `run_ids`; `runs` ≠ `len(run_ids)`; отсутствие обязательного ключа;
+- **правило B (анти-обход):** удаление `bench` у routable-записи → FAIL;
+  изменение любого поля `bench` с невалидным результатом → FAIL; валидное
+  изменение (ре-бенчмарк: новые `run_ids`+`rank_score`+`date`) → OK;
+  добавление валидного `bench` к уже-routable записи (бэкфил) → OK,
+  невалидного → FAIL; удаление `bench` одновременно с `routable → false` → OK;
 - дубликаты `agent_id` в base или head → exit 2;
 - битый TOML / отсутствующий файл → exit 2.
 
@@ -242,12 +276,16 @@ pytest в `tests/test_routable_gate.py` (скрипт импортируется
   `arbiter-mcp/src/db.rs`: `run_id`, `payload_version`, `benchmark_id`,
   `agent_id`, `ts`, `score`, `score_components`, …);
 - все run_ids есть, `score_components.rank_score` валиден, |mean − заявка| ≤ eps → OK;
-- эффективный скор через fallback: `score_components = NULL` → берётся `score` → OK;
-- `score_components` — битый JSON / без ключа `rank_score` / `rank_score` не число → fallback на `score` (зеркало runtime);
+- эффективный скор через fallback (колонка `TEXT NOT NULL` — NULL-кейса на
+  реальной схеме не существует, тестируем достижимые): `score_components = "{}"`
+  (нет ключа) / битый JSON / `rank_score` не число / **`rank_score` —
+  JSON-boolean** (зеркало `as_f64` → None) → берётся `score`;
 - один из `run_ids` отсутствует в db → FAIL;
 - `run_id` есть, но `agent_id`/`benchmark_id` не совпадают → FAIL;
 - |mean − заявка| > eps → FAIL (фактическое среднее в выводе);
 - `bench.date` дальше 7 дней от `max(ts)` → FAIL;
+- невалидный (не-RFC3339) `ts` в строке из `run_ids` → exit 2 (повреждённые данные);
+- `--eps -1` / `--eps nan` → exit 2;
 - равные `ts` у строк → информационный runtime-скор детерминирован
   (`ORDER BY ts DESC, run_id DESC`);
 - grandfathered-пара без `bench` → warning, exit 0;
