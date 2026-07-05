@@ -1,19 +1,22 @@
 //! Arbiter CLI — smoke tests and benchmarks.
 //!
 //! Usage:
-//!   arbiter-cli bench   Run all benchmarks
-//!   arbiter-cli help    Print usage
+//!   arbiter-cli bench    Run all benchmarks
+//!   arbiter-cli catalog  Manage user-config catalog
+//!   arbiter-cli help     Print usage
 
 // Database (rusqlite) is Send but not Sync; Arc is used for shared
 // ownership in the hot-reload model, not for cross-thread access.
 #![allow(clippy::arc_with_non_send_sync)]
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
 
+use arbiter_core::catalog::{self, Catalog, Severity};
 use arbiter_core::policy::decision_tree::DecisionTree;
 use arbiter_core::types::*;
 
@@ -680,6 +683,158 @@ fn get_rss_mb() -> f64 {
 }
 
 // ---------------------------------------------------------------------------
+// catalog subcommand (design: docs/2026-07-05-catalog-loader-design.md §6)
+// ---------------------------------------------------------------------------
+
+/// Resolve the catalog path from the real environment (the only place
+/// env/home are read; core stays pure). A non-UTF-8 `$ATP_CATALOG` is a
+/// loud error rather than being silently treated as unset (fail-loud);
+/// ambient vars (`XDG_CONFIG_HOME`, `HOME`) stay best-effort.
+fn resolve_from_real_env() -> Result<catalog::ResolvedPath, String> {
+    if let Some(raw) = std::env::var_os(catalog::CATALOG_ENV_VAR) {
+        if raw.to_str().is_none() {
+            return Err(format!(
+                "${} is set but is not valid UTF-8; cannot use it as a path",
+                catalog::CATALOG_ENV_VAR
+            ));
+        }
+    }
+    let home = std::env::var("HOME")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from);
+    catalog::resolve_path(|key| std::env::var(key).ok(), home.as_deref()).map_err(|e| e.to_string())
+}
+
+/// Resolve + read + parse the user-config catalog (fail-loud).
+fn load_catalog() -> Result<(PathBuf, Catalog), String> {
+    let resolved = resolve_from_real_env()?;
+    if !resolved.path.exists() {
+        return Err(catalog::missing_file_error(&resolved).to_string());
+    }
+    let text = std::fs::read_to_string(&resolved.path)
+        .map_err(|e| format!("failed to read {}: {e}", resolved.path.display()))?;
+    let cat = catalog::parse_catalog(&text).map_err(|e| e.to_string())?;
+    Ok((resolved.path, cat))
+}
+
+/// `catalog path|check|list` dispatch; returns the process exit code.
+fn run_catalog(subcommand: Option<&str>) -> i32 {
+    match subcommand {
+        Some("path") => catalog_path(),
+        Some("check") => catalog_check(),
+        Some("list") => catalog_list(),
+        other => {
+            eprintln!(
+                "unknown catalog subcommand {:?}; expected path|check|list",
+                other.unwrap_or("")
+            );
+            1
+        }
+    }
+}
+
+/// Print the resolved candidate path; exit 1 if it cannot be resolved or
+/// the file does not exist (fail-loud surface, design §6).
+fn catalog_path() -> i32 {
+    match resolve_from_real_env() {
+        Ok(resolved) => {
+            println!("{}", resolved.path.display());
+            if resolved.path.exists() {
+                0
+            } else {
+                eprintln!("{}", catalog::missing_file_error(&resolved));
+                1
+            }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
+}
+
+/// Validate the catalog: print all issues + summary; exit 1 on errors.
+fn catalog_check() -> i32 {
+    let (path, cat) = match load_catalog() {
+        Ok(loaded) => loaded,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 1;
+        }
+    };
+    let issues = arbiter_core::catalog::validate(&cat);
+    let mut errors = 0usize;
+    let mut warnings = 0usize;
+    for issue in &issues {
+        match issue.severity {
+            Severity::Error => {
+                errors += 1;
+                println!("ERROR {}: {}", issue.code, issue.message);
+            }
+            Severity::Warning => {
+                warnings += 1;
+                println!("WARN  {}: {}", issue.code, issue.message);
+            }
+        }
+    }
+    if errors > 0 {
+        println!(
+            "catalog INVALID: {} ({errors} errors, {warnings} warnings)",
+            path.display()
+        );
+        1
+    } else {
+        println!(
+            "catalog OK: {} ({} models, {} harnesses, {} agents, {warnings} warnings)",
+            path.display(),
+            cat.models.len(),
+            cat.harnesses.len(),
+            cat.agents.len()
+        );
+        0
+    }
+}
+
+/// Print the enrollment table; same exit semantics as `check`.
+fn catalog_list() -> i32 {
+    let (_, cat) = match load_catalog() {
+        Ok(loaded) => loaded,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return 1;
+        }
+    };
+    println!(
+        "{:<45} {:<7} {:<9} MODEL STATUS",
+        "AGENT_ID", "TESTED", "ROUTABLE"
+    );
+    for agent in &cat.agents {
+        let status = cat
+            .models
+            .get(&agent.model)
+            .map(|m| m.status.to_string())
+            .unwrap_or_else(|| "missing!".to_string());
+        println!(
+            "{:<45} {:<7} {:<9} {}",
+            agent.agent_id(),
+            agent.tested,
+            agent.routable,
+            status
+        );
+    }
+    let has_errors = arbiter_core::catalog::validate(&cat)
+        .iter()
+        .any(|i| i.severity == Severity::Error);
+    if has_errors {
+        eprintln!("(catalog has validation errors — run `arbiter-cli catalog check`)");
+        1
+    } else {
+        0
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -690,8 +845,11 @@ fn main() {
         eprintln!("arbiter-cli — smoke tests and benchmarks");
         eprintln!();
         eprintln!("USAGE:");
-        eprintln!("  arbiter-cli bench   Run all benchmarks");
-        eprintln!("  arbiter-cli help    Print this help");
+        eprintln!("  arbiter-cli bench           Run all benchmarks");
+        eprintln!("  arbiter-cli catalog path    Print resolved catalog path");
+        eprintln!("  arbiter-cli catalog check   Validate the user-config catalog");
+        eprintln!("  arbiter-cli catalog list    List enrolled agents");
+        eprintln!("  arbiter-cli help            Print this help");
         return;
     }
 
@@ -728,6 +886,8 @@ fn main() {
         if failed > 0 {
             std::process::exit(1);
         }
+    } else if args[1] == "catalog" {
+        std::process::exit(run_catalog(args.get(2).map(String::as_str)));
     } else {
         eprintln!("Unknown command: {}", args[1]);
         eprintln!("Run 'arbiter-cli help' for usage.");

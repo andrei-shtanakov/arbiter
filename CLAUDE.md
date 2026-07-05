@@ -70,6 +70,7 @@ arbiter/
 │       ├── lib.rs                # Crate root, module declarations
 │       ├── types.rs              # AgentFeatureVector (22-dim), AgentAction, AgentState
 │       ├── error.rs              # ArbiterError type (thiserror)
+│       ├── catalog/mod.rs        # User-config agents-catalog loader (ADR-ECO-003b): parse, validate V1-V7, resolve $ATP_CATALOG→XDG
 │       ├── traits.rs             # Shared traits (PolicyEngine, InvariantChecker)
 │       ├── obs.rs                 # Observability emitter (file-per-pid JSONL sinks, OTel Logs)
 │       ├── policy/
@@ -105,7 +106,8 @@ arbiter/
 │       ├── report_benchmark_test.rs # report_benchmark tool tests (R-06b M4)
 │       └── golden/               # Golden test fixtures (JSONL request/response pairs)
 ├── arbiter-cli/                  # CLI for smoke tests and benchmarks
-│   └── benches/routing.rs        # Criterion routing benchmark
+│   ├── benches/routing.rs        # Criterion routing benchmark
+│   └── tests/catalog_cli.rs      # CLI smoke tests for catalog subcommands
 ├── config/
 │   ├── agents.toml               # Agent definitions (capabilities, costs, concurrency)
 │   └── invariants.toml           # Rule thresholds (budget, retries, rate limits)
@@ -164,6 +166,9 @@ cargo run --release --bin arbiter-mcp -- --help
 
 # Run benchmarks via CLI
 cargo run --release --bin arbiter-cli -- bench
+
+# Validate the user-config agents catalog ($ATP_CATALOG → ~/.config/atp/agents-catalog.toml)
+cargo run --release --bin arbiter-cli -- catalog check
 ```
 
 ### Coding Standards
@@ -194,7 +199,7 @@ anyhow = "1"
 
 ### Key Architectural Rules
 
-1. **arbiter-core is a library** — no I/O, no SQLite, no network in domain modules. Pure logic: types, DT inference, invariant checks, feature vector construction. **Exception: `obs` module** — cross-project observability emitter is shared infrastructure that lives in core (so any binary can consume it) and is allowed file I/O (file-per-pid JSONL sinks) and env-var reads per the observability contract at `../_cowork_output/observability-contract/`. It is currently initialized only by `arbiter-mcp` (`main.rs` → `obs::init_logging`); `arbiter-cli` does not wire it up.
+1. **arbiter-core is a library** — no I/O, no SQLite, no network in domain modules. Pure logic: types, DT inference, invariant checks, feature vector construction. The `catalog` module is pure (env-vars and file paths are injected by the caller), so no exception is needed. **Exception: `obs` module** — cross-project observability emitter is shared infrastructure that lives in core (so any binary can consume it) and is allowed file I/O (file-per-pid JSONL sinks) and env-var reads per the observability contract at `../_cowork_output/observability-contract/`. It is currently initialized only by `arbiter-mcp` (`main.rs` → `obs::init_logging`); `arbiter-cli` does not wire it up.
 2. **arbiter-mcp is a binary** — owns I/O (stdio, SQLite), config loading, MCP protocol, tool dispatch. Depends on arbiter-core
 3. **MCP protocol is hand-rolled** — no MCP SDK dependency. Simple JSON-RPC 2.0 over stdin/stdout, one JSON object per line
 4. **Feature vector is 22 floats** — see `arbiter-spec.md` section 4.5 for exact encoding

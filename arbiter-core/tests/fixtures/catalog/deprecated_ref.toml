@@ -1,0 +1,12 @@
+[models."m1"]
+vendor = "acme"
+status = "deprecated"
+
+[harnesses.h1]
+kind = "cli"
+shim = "shims/h1.py"
+routable = true
+
+[[agents]]
+harness = "h1"
+model = "m1"
