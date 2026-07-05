@@ -22,6 +22,16 @@
 
 ## Активные задачи
 
+### ADR-ECO-003b: Rust-загрузчик user-config каталога — ✅ закрыт
+
+- [x] `arbiter_core::catalog`: parse (3 плоскости, degrade-with-warning для
+  незнакомых enum) + validate V1–V7 (V2+V3 зеркалят conformance Check 5) +
+  `resolve_path` ($ATP_CATALOG → XDG `atp/`, fail-loud, без bundled-дефолта)
+- [x] `arbiter-cli catalog path|check|list` — CLI-поверхность fail-loud
+- [x] Дизайн: `docs/2026-07-05-catalog-loader-design.md` (XDG-namespace `atp/`
+  зафиксирован — закрывает открытый пункт ADR-003b)
+- Коммит: `25b0a94`
+
 ### R-10: CI/CD (effort S) — ✅ закрыт
 
 - [x] **GitHub Actions**: `cargo test` + `cargo clippy` + `ruff` (`.github/workflows/ci.yml`, `fe4c033`)

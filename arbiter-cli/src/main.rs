@@ -792,7 +792,10 @@ fn catalog_list() -> i32 {
             return 1;
         }
     };
-    println!("{:<45} {:<7} {:<9} MODEL STATUS", "AGENT_ID", "TESTED", "ROUTABLE");
+    println!(
+        "{:<45} {:<7} {:<9} MODEL STATUS",
+        "AGENT_ID", "TESTED", "ROUTABLE"
+    );
     for agent in &cat.agents {
         let status = cat
             .models
