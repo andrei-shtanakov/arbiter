@@ -1,8 +1,8 @@
 # TODO — arbiter (план от 2026-04-16, snapshot 2026-04-25)
 
 > Роль в экосистеме: MCP policy engine / router. Интеграция с Maestro shipped — обе стороны на v0.2.0+
-> Стратегический контекст: `../_cowork_output/roadmap/ecosystem-roadmap.md`
-> Актуальные статусы: `../_cowork_output/status/2026-04-24-status.md`, `2026-04-18-status.md`
+> Стратегический контекст: `../prograph-vault/authored/notes/ecosystem-roadmap.md`
+> Актуальные статусы: `../prograph-vault/authored/notes/status/2026-04-24-status.md`, `../prograph-vault/authored/notes/status/2026-04-18-status.md`
 
 ## Текущее состояние
 - ✅ R1–R4 собственного roadmap закрыты (p99 ≤5ms, typed errors, metrics, golden-tests)
@@ -88,7 +88,7 @@
 - 🟢 **R-07 ECO-3 eval-driven routing — Phase 1 в работе** (план от 2026-06-13). Замыкает read-гэп: `benchmark_runs` писалась (`report_benchmark`/M4), но не читалась никем. Тонкий срез = пост-inference re-rank по бенчмарк-скору (зеркало `PREFERRED_AGENT_BOOST`), без ретрейна дерева/смены `n_features`/миграций.
   - **План (источник истины для кода):** `./2026-06-13-r07-phase1-arbiter-rerank-plan.md` — Tasks 1–4 (TDD, сверены с живым кодом).
   - **Мотивация + ревью:** `./2026-06-13-r07-thin-slice.md` (детали §3 помечены «↳ SUPERSEDED» → план).
-  - **Фаза 0 (разведка данных):** `../_cowork_output/status/2026-06-13-r07-phase0-data-recon.md` — готовых ATP-данных нет (`.atp-dashboard.db` пуст, agent_id ≠ claude_code/codex_cli/aider, нет покрытия по task_type). **Путь 1 (seed из готовых результатов) мёртв.**
+  - **Фаза 0 (разведка данных):** `../prograph-vault/authored/notes/status/2026-06-13-r07-phase0-data-recon.md` — готовых ATP-данных нет (`.atp-dashboard.db` пуст, agent_id ≠ claude_code/codex_cli/aider, нет покрытия по task_type). **Путь 1 (seed из готовых результатов) мёртв.**
   - **Источник данных:** atp-platform пишет/гоняет тест-прогон 3 агентов на `code-review` → `report_benchmark` → реальные строки `benchmark_runs` (вход для plan Task 4).
   - **Декомпозиция:** Tasks 1–3 (scoped `get_benchmark_score` + `apply_benchmark_rerank` + A/B-тест со scoping'ом) — на сид-данных, **не ждут Maestro**. Task 4 (живой A/B + гейт) ждёт данные от atp-platform.
   - **Гейты:** один бенчмарк доказывает *механизм* (проводка + магнитуда сигнала), НЕ «направление валидировано»; **crossover-gate** (task-dependence, не global bias — ревью R1) отложен до бенчмарка №2 (plan Task 4 Step 4).
