@@ -72,6 +72,14 @@ pub fn execute(args: &Value, db: &Database, config: &ArbiterConfig) -> Result<Re
     let duration_min = args.get("duration_min").and_then(|v| v.as_f64());
     let tokens_used = args.get("tokens_used").and_then(|v| v.as_i64());
     let cost_usd = args.get("cost_usd").and_then(|v| v.as_f64());
+    // Negative or non-finite cost would poison agent_stats totals and let
+    // get_budget_status violate the promoted Budget v1 contract
+    // (non-negative money fields) — reject at the boundary.
+    if let Some(c) = cost_usd {
+        if !c.is_finite() || c < 0.0 {
+            bail!("Invalid cost_usd '{}'. Must be a finite value >= 0", c);
+        }
+    }
     let exit_code = args
         .get("exit_code")
         .and_then(|v| v.as_i64())
@@ -331,6 +339,35 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("Invalid status"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_negative_and_non_finite_cost_usd() {
+        let db = setup_db();
+        insert_test_agent(&db, "claude_code@claude-sonnet-4-6");
+        let config = test_config();
+
+        for bad_cost in [
+            serde_json::json!(-0.01),
+            serde_json::json!(f64::NAN),
+            serde_json::json!(f64::INFINITY),
+        ] {
+            let args = serde_json::json!({
+                "task_id": "t1",
+                "agent_id": "claude_code@claude-sonnet-4-6",
+                "status": "success",
+                "cost_usd": bad_cost
+            });
+            let result = execute(&args, &db, &config);
+            // serde_json turns NaN/Infinity into Null, which as_f64()
+            // drops — only a real negative number reaches the guard, the
+            // rest degrade to "cost unknown" rather than poisoned totals.
+            if args["cost_usd"].is_f64() {
+                assert!(result.is_err(), "cost {bad_cost} must be rejected");
+                let err = result.unwrap_err().to_string();
+                assert!(err.contains("Invalid cost_usd"), "got: {err}");
+            }
+        }
     }
 
     #[test]
