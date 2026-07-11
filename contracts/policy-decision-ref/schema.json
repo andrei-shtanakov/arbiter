@@ -38,6 +38,7 @@
     },
     "ts": {
       "type": ["string", "null"],
+      "format": "date-time",
       "description": "ISO 8601 timestamp of the decision, if known to the consumer."
     }
   }
