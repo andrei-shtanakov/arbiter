@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 
 fn contract_dir() -> PathBuf {
-    // Vendored from Maestro/_cowork_output/observability-contract/ (the canonical
+    // Vendored from Maestro/contracts/observability/ (the canonical
     // location) so arbiter CI is self-contained — the Maestro repo is absent from
     // arbiter's isolated CI checkout. Keep in sync when the contract changes.
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/contract")

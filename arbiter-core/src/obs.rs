@@ -1,6 +1,6 @@
 //! Cross-project observability emitter (Rust side of the v1 contract).
 //!
-//! Implements `_cowork_output/observability-contract/`:
+//! Implements `Maestro/contracts/observability/` (the ecosystem observability contract):
 //!   - Emits OpenTelemetry Logs Data Model JSON (one record per line).
 //!   - Propagates W3C Trace Context across subprocess boundaries via `TRACEPARENT`.
 //!   - Writes to `$ORCHESTRA_LOG_DIR/<service>-<pid>.jsonl` (file-per-pid avoids
