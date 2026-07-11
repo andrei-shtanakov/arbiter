@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/andrei-shtanakov/arbiter/contracts/policy-decision-ref/schema.json",
+  "title": "PolicyDecisionRef v1",
+  "description": "Portable reference to one arbiter routing decision (contracts roadmap phase 2, RD-002). decision_id is minted by arbiter as the decisions-table rowid and surfaced in the route_task response at metadata.decision_id; outcomes reference it via FK, and report_outcome resolves it from task_id when omitted. Consumers persist this record to correlate a decision with later outcomes and work items (task_id doubles as the WorkCorrelation join key). See rationale.md.",
+  "type": "object",
+  "required": ["schema_version", "decision_id", "task_id", "action"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1",
+      "description": "PolicyDecisionRef contract version."
+    },
+    "decision_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "SQLite rowid of the decision, minted by arbiter. int64."
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Work-item key the decision was made for (= WorkCorrelation work_item_id)."
+    },
+    "action": {
+      "type": "string",
+      "enum": ["assign", "reject", "fallback"],
+      "description": "Decision vocabulary. NOT a work-item lifecycle status — do not project it onto WorkCorrelation's common enum."
+    },
+    "chosen_agent": {
+      "type": ["string", "null"],
+      "description": "Agent id (<harness>@<model>); may be empty/null for reject."
+    },
+    "confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Decision confidence as returned by route_task."
+    },
+    "ts": {
+      "type": ["string", "null"],
+      "description": "ISO 8601 timestamp of the decision, if known to the consumer."
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/andrei-shtanakov/arbiter/contracts/budget/schema.json",
+  "title": "Budget v1",
+  "description": "Response of the get_budget_status MCP tool, promoted as-is (contracts roadmap phase 2, RD-002). Monetary amounts are decimal STRINGS with exactly two fraction digits — this canonizes the existing wire format, see rationale.md. Versioned by schema file path; the wire response carries no version field.",
+  "type": "object",
+  "required": [
+    "budget_limit_usd",
+    "total_spent_usd",
+    "remaining_usd",
+    "over_budget",
+    "by_agent"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "budget_limit_usd": {
+      "type": "string",
+      "pattern": "^-?[0-9]+\\.[0-9]{2}$",
+      "description": "Configured budget threshold (invariants.budget.threshold_usd), 2dp decimal string."
+    },
+    "total_spent_usd": {
+      "type": "string",
+      "pattern": "^-?[0-9]+\\.[0-9]{2}$",
+      "description": "Sum of recorded outcome costs, 2dp decimal string."
+    },
+    "remaining_usd": {
+      "type": "string",
+      "pattern": "^-?[0-9]+\\.[0-9]{2}$",
+      "description": "limit - spent; NEGATIVE when over budget."
+    },
+    "over_budget": {
+      "type": "boolean",
+      "description": "True when total_spent_usd exceeds budget_limit_usd."
+    },
+    "by_agent": {
+      "type": "array",
+      "description": "Per-agent cost breakdown.",
+      "items": {
+        "type": "object",
+        "required": ["agent_id", "total_cost_usd", "total_tasks"],
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": { "type": "string", "minLength": 1 },
+          "total_cost_usd": {
+            "type": "string",
+            "pattern": "^-?[0-9]+\\.[0-9]{2}$"
+          },
+          "total_tasks": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}
