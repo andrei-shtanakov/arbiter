@@ -200,7 +200,7 @@ anyhow = "1"
 
 ### Key Architectural Rules
 
-1. **arbiter-core is a library** — no I/O, no SQLite, no network in domain modules. Pure logic: types, DT inference, invariant checks, feature vector construction. The `catalog` module is pure (env-vars and file paths are injected by the caller), so no exception is needed. **Exception: `obs` module** — cross-project observability emitter is shared infrastructure that lives in core (so any binary can consume it) and is allowed file I/O (file-per-pid JSONL sinks) and env-var reads per the observability contract at `../Maestro/contracts/observability/`. It is currently initialized only by `arbiter-mcp` (`main.rs` → `obs::init_logging`); `arbiter-cli` does not wire it up.
+1. **arbiter-core is a library** — no I/O, no SQLite, no network in domain modules. Pure logic: types, DT inference, invariant checks, feature vector construction. The `catalog` module is pure (env-vars and file paths are injected by the caller), so no exception is needed. **Exception: `obs` module** — cross-project observability emitter is shared infrastructure that lives in core (so any binary can consume it) and is allowed file I/O (file-per-pid JSONL sinks) and env-var reads per the observability contract at `Maestro/contracts/observability/`. It is currently initialized only by `arbiter-mcp` (`main.rs` → `obs::init_logging`); `arbiter-cli` does not wire it up.
 2. **arbiter-mcp is a binary** — owns I/O (stdio, SQLite), config loading, MCP protocol, tool dispatch. Depends on arbiter-core
 3. **MCP protocol is hand-rolled** — no MCP SDK dependency. Simple JSON-RPC 2.0 over stdin/stdout, one JSON object per line
 4. **Feature vector is 22 floats** — see `arbiter-spec.md` section 4.5 for exact encoding
