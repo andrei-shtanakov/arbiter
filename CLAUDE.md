@@ -108,6 +108,9 @@ arbiter/
 ├── arbiter-cli/                  # CLI for smoke tests and benchmarks
 │   ├── benches/routing.rs        # Criterion routing benchmark
 │   └── tests/catalog_cli.rs      # CLI smoke tests for catalog subcommands
+├── contracts/                    # Promoted cross-project contracts (RD-002): consumers vendor pinned copies
+│   ├── budget/                   # Budget v1 — get_budget_status response canonized as-is (schema + rationale + fixtures)
+│   └── policy-decision-ref/      # PolicyDecisionRef v1 — portable ref to a routing decision (decision_id provenance)
 ├── config/
 │   ├── agents.toml               # Agent definitions (capabilities, costs, concurrency)
 │   └── invariants.toml           # Rule thresholds (budget, retries, rate limits)

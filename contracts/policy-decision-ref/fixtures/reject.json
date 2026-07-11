@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "decision_id": 21,
+  "task_id": "corr-demo-note",
+  "action": "reject",
+  "chosen_agent": null,
+  "confidence": 0.0,
+  "ts": "2026-07-11T15:00:41Z"
+}

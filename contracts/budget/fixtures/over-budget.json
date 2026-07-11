@@ -1,0 +1,18 @@
+{
+  "budget_limit_usd": "10.00",
+  "total_spent_usd": "13.50",
+  "remaining_usd": "-3.50",
+  "over_budget": true,
+  "by_agent": [
+    {
+      "agent_id": "claude_code@claude-sonnet-4-6",
+      "total_cost_usd": "9.30",
+      "total_tasks": 41
+    },
+    {
+      "agent_id": "opencode@glm-5.1",
+      "total_cost_usd": "4.20",
+      "total_tasks": 17
+    }
+  ]
+}

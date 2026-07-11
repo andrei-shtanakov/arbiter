@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "decision_id": 22,
+  "task_id": "corr-demo-note-2",
+  "action": "assign",
+  "chosen_agent": "claude_code@claude-sonnet-4-6",
+  "confidence": 1.0,
+  "ts": "2026-07-11T15:02:46Z"
+}
