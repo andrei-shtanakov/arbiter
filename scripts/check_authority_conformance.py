@@ -61,8 +61,11 @@ def check(authority: dict, catalog: dict) -> list[str]:
     """Return findings; empty means conformant."""
     findings: list[str] = []
 
-    if not isinstance(authority.get("version"), int):
-        findings.append("authority: 'version' must be an integer")
+    if authority.get("version") != 1:
+        findings.append(
+            f"authority: unsupported version {authority.get('version')!r} "
+            f"(this checker supports 1)"
+        )
     unknown = authority.get("unknown_context", "deny")
     if unknown not in UNKNOWN_CONTEXT:
         findings.append(
@@ -79,14 +82,30 @@ def check(authority: dict, catalog: dict) -> list[str]:
         for a in catalog.get("agents", [])
     ]
 
-    for i, rule in enumerate(authority.get("rules", [])):
+    rules = authority.get("rules", [])
+    if not isinstance(rules, list):
+        findings.append(
+            f"authority: 'rules' must be an array, got {type(rules).__name__}"
+        )
+        return findings
+    for i, rule in enumerate(rules):
         where = f"rules[{i}]"
+        if not isinstance(rule, dict):
+            findings.append(f"{where}: must be a table, got {type(rule).__name__}")
+            continue
         role, phase = rule.get("role"), rule.get("phase")
         if role not in ROLES:
             findings.append(f"{where}: unknown role '{role}' (expected one of {ROLES})")
         if phase not in PHASES:
-            findings.append(f"{where}: unknown phase '{phase}' (expected one of {PHASES})")
+            findings.append(
+                f"{where}: unknown phase '{phase}' (expected one of {PHASES})"
+            )
         patterns = rule.get("agents", [])
+        if not isinstance(patterns, list) or not all(
+            isinstance(p, str) for p in patterns
+        ):
+            findings.append(f"{where}: 'agents' must be a list of strings")
+            continue
         if not patterns:
             findings.append(f"{where}: empty agents list")
         for pattern in patterns:
@@ -104,7 +123,8 @@ def check(authority: dict, catalog: dict) -> list[str]:
                 )
                 continue
             matched = [
-                (h, m) for (h, m, routable) in agents
+                (h, m)
+                for (h, m, routable) in agents
                 if routable and pattern_matches(pattern, h, m)
             ]
             if not matched:

@@ -302,11 +302,14 @@ pub fn execute(
         for denied in &audit.denied {
             debug!(agent = %denied.agent_id, reason = %denied.reason, "denied by authority");
         }
+        let allowed: std::collections::HashSet<String> = allowed.into_iter().collect();
         let survivors: Vec<AgentInfo> = candidates
             .into_iter()
             .filter(|a| allowed.contains(&a.agent_id))
             .collect();
-        if survivors.is_empty() {
+        // A capability-empty input is NOT an authority denial: only report
+        // REASON_NO_AUTHORIZED when authority itself removed real candidates.
+        if survivors.is_empty() && !ids.is_empty() {
             let inference_us = start.elapsed().as_micros() as i64;
             let mut result = RouteResult {
                 task_id: task_id.to_string(),
@@ -334,6 +337,7 @@ pub fn execute(
     } else {
         candidates
     };
+    let authority_audit = authority_audit; // no further mutation past this point
 
     let candidates_evaluated = candidates.len();
 
@@ -355,7 +359,7 @@ pub fn execute(
             candidates_evaluated: 0,
             warnings,
             decision_id: None,
-            authority: None,
+            authority: authority_audit.clone(),
         };
         result.decision_id = log_decision(db, task_id, task, constraints, &result);
         metrics.record_decision(
@@ -558,7 +562,7 @@ pub fn execute(
         candidates_evaluated,
         warnings,
         decision_id: None,
-        authority: None,
+        authority: authority_audit.clone(),
     };
 
     result.decision_id = log_decision(db, task_id, task, constraints, &result);
@@ -2326,5 +2330,48 @@ mod tests {
         };
         let json = result_to_json(&without);
         assert!(json["metadata"].get("authority").is_none());
+    }
+
+    #[test]
+    fn capability_empty_is_not_an_authority_denial() {
+        // Copilot (PR #50): no capability-eligible candidates -> the classic
+        // "No eligible agents" reject, NOT authority_no_authorized_candidates;
+        // the audit must still be attached (feature is enabled).
+        let (db, tree) = setup();
+        let agents = test_agents();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
+        let invariant_cfg = test_invariant_config();
+        let policy = test_authority_policy(vec![arbiter_core::authority::AuthorityRule {
+            role: "implement".to_string(),
+            phase: "execution".to_string(),
+            agents: vec!["claude_code@*".to_string()],
+        }]);
+        let mut task = simple_task();
+        // No test agent supports "research" -> capability filter yields zero.
+        task.task_type = TaskType::Research;
+
+        let result = execute(
+            "auth-cap-empty",
+            &task,
+            &authority_constraints("implement", "execution"),
+            Some(&policy),
+            Some(&tree),
+            &registry,
+            &db,
+            &invariant_cfg,
+            &crate::metrics::Metrics::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.action, AgentAction::Reject);
+        assert_ne!(
+            result.reasoning,
+            arbiter_core::authority::REASON_NO_AUTHORIZED,
+            "capability-empty must not be reported as an authority denial"
+        );
+        let audit = result
+            .authority
+            .expect("audit present when feature enabled");
+        assert!(audit.denied.is_empty());
     }
 }

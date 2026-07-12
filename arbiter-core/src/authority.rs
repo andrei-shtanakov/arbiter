@@ -24,6 +24,9 @@ pub const PHASES: [&str; 4] = ["authoring", "execution", "merge", "pr"];
 /// Reason code used when authority filtering leaves zero candidates.
 pub const REASON_NO_AUTHORIZED: &str = "authority_no_authorized_candidates";
 
+/// The only policy version this engine understands (fail-closed on others).
+pub const SUPPORTED_VERSION: u32 = 1;
+
 /// Execution context supplied by the caller in `constraints.authority_context`.
 ///
 /// Deliberately NOT part of `TaskInput`: it must never leak into the 22-dim
@@ -88,6 +91,12 @@ pub struct AuthorityAudit {
 /// Returns the first problem found; a policy that does not validate must not
 /// be installed (config error at load, keep-previous on hot reload).
 pub fn validate_policy(policy: &AuthorityPolicy) -> Result<(), String> {
+    if policy.version != SUPPORTED_VERSION {
+        return Err(format!(
+            "unsupported policy version {} (this engine supports {SUPPORTED_VERSION})",
+            policy.version
+        ));
+    }
     for (i, rule) in policy.rules.iter().enumerate() {
         if !ROLES.contains(&rule.role.as_str()) {
             return Err(format!(
@@ -177,6 +186,10 @@ pub fn check_authority(
     };
 
     if !ROLES.contains(&ctx.role.as_str()) || !PHASES.contains(&ctx.phase.as_str()) {
+        // Keep the audit schema-valid (role/phase are closed enums + null):
+        // the invalid values survive in the denial reasons, not in the echo.
+        audit.role = None;
+        audit.phase = None;
         audit.denied = deny_all(
             candidates,
             &format!(
@@ -392,5 +405,26 @@ mod tests {
         let candidates = ids(&["claude_code@x", "codex_cli@gpt-5.5", "opencode@y"]);
         let (allowed, _) = check_authority(&p, Some(&ctx("implement", "execution")), &candidates);
         assert_eq!(allowed, ids(&["claude_code@x", "codex_cli@gpt-5.5"]));
+    }
+
+    #[test]
+    fn unsupported_policy_version_is_rejected() {
+        let mut p = policy(vec![], UnknownContext::Deny);
+        p.version = 2;
+        assert!(validate_policy(&p).unwrap_err().contains("version"));
+    }
+
+    #[test]
+    fn invalid_context_audit_keeps_role_phase_null_for_schema() {
+        // The audit's role/phase are closed enums (+null) in Authority v1 —
+        // echoing invalid strings would make metadata.authority schema-invalid.
+        let p = policy(
+            vec![rule("implement", "execution", &["a@b"])],
+            UnknownContext::Deny,
+        );
+        let (_, audit) = check_authority(&p, Some(&ctx("root", "execution")), &ids(&["a@b"]));
+        assert_eq!(audit.role, None);
+        assert_eq!(audit.phase, None);
+        assert!(audit.denied[0].reason.contains("root"));
     }
 }
