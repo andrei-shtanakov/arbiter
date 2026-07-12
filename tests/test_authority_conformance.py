@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-import sys
+import importlib.util
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from check_authority_conformance import check, pattern_matches, valid_pattern
+_SPEC = importlib.util.spec_from_file_location(
+    "check_authority_conformance",
+    Path(__file__).parent.parent / "scripts" / "check_authority_conformance.py",
+)
+assert _SPEC is not None and _SPEC.loader is not None
+_MOD = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MOD)
+check = _MOD.check
+pattern_matches = _MOD.pattern_matches
+valid_pattern = _MOD.valid_pattern
 
 CATALOG = {
     "models": {
@@ -53,7 +60,13 @@ def test_pattern_matching_no_routable_agent_is_finding() -> None:
 
 def test_pattern_matching_retired_model_is_finding() -> None:
     a = authority(
-        [{"role": "implement", "phase": "execution", "agents": ["claude_code@old-model"]}]
+        [
+            {
+                "role": "implement",
+                "phase": "execution",
+                "agents": ["claude_code@old-model"],
+            }
+        ]
     )
     findings = check(a, CATALOG)
     assert any("retired model" in f for f in findings)
@@ -81,3 +94,27 @@ def test_pattern_helpers() -> None:
     assert not valid_pattern("aider")
     assert pattern_matches("claude_code@*", "claude_code", "anything")
     assert not pattern_matches("claude_code@*", "codex_cli", "anything")
+
+
+def test_unsupported_version_is_finding() -> None:
+    a = {"version": 2, "unknown_context": "deny", "rules": []}
+    findings = check(a, CATALOG)
+    assert any("version" in f for f in findings)
+
+
+def test_rules_not_a_list_is_finding_not_crash() -> None:
+    a = {"version": 1, "unknown_context": "deny", "rules": {}}
+    findings = check(a, CATALOG)
+    assert any("rules" in f for f in findings)
+
+
+def test_agents_not_a_list_is_finding_not_crash() -> None:
+    a = {
+        "version": 1,
+        "unknown_context": "deny",
+        "rules": [
+            {"role": "implement", "phase": "execution", "agents": "claude_code@*"}
+        ],
+    }
+    findings = check(a, CATALOG)
+    assert any("agents" in f for f in findings)
