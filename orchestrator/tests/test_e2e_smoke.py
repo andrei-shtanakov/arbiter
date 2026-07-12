@@ -78,6 +78,7 @@ async def test_full_route_report_status_cycle(
             "complexity": "simple",
             "priority": "normal",
         },
+        {"authority_context": {"role": "implement", "phase": "execution"}},
     )
     assert isinstance(decision, RouteDecision)
     assert decision.task_id == "e2e-01"
@@ -135,6 +136,7 @@ async def test_route_two_tasks_sequentially(
             "complexity": "simple",
             "priority": "normal",
         },
+        {"authority_context": {"role": "implement", "phase": "execution"}},
     )
     assert d1.task_id == "e2e-02a"
     assert d1.action in ("assign", "fallback")
@@ -157,6 +159,7 @@ async def test_route_two_tasks_sequentially(
             "complexity": "complex",
             "priority": "high",
         },
+        {"authority_context": {"role": "implement", "phase": "execution"}},
     )
     assert d2.task_id == "e2e-02b"
     assert d2.action in ("assign", "fallback")
@@ -171,3 +174,27 @@ async def test_route_two_tasks_sequentially(
     )
     assert outcome.recorded is True
     assert outcome.updated_stats.total_tasks >= 1
+
+
+@pytest.mark.asyncio
+async def test_authority_fail_closed_without_context(client: ArbiterClient) -> None:
+    """RD-006 M3: the vendored allowlist is ACTIVE (unknown_context=deny).
+
+    A route_task call without constraints.authority_context must be a
+    deterministic policy denial, not an assignment — this is the live proof
+    that activation is fail-closed end-to-end.
+    """
+    raw = await client.route_task(
+        "e2e-authority-01",
+        {
+            "type": "bugfix",
+            "language": "python",
+            "complexity": "simple",
+            "priority": "normal",
+        },
+    )
+    assert raw["action"] == "reject"
+    assert raw["reasoning"] == "authority_no_authorized_candidates"
+    audit = raw["metadata"]["authority"]
+    assert audit["policy_sha"].startswith("sha256:")
+    assert audit["denied"], "denied candidates must be audited"
