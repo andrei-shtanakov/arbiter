@@ -613,4 +613,24 @@ buffer_multiplier = 1.5
             "Expected field name in error: {msg}"
         );
     }
+
+    #[test]
+    fn repo_authority_toml_loads_and_validates() {
+        // The vendored config/authority.toml (RD-006 M3) must always be
+        // loadable by the engine that enforces it — a broken vendored file
+        // would fail arbiter startup.
+        let config_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("config");
+        let policy = load_authority(&config_dir)
+            .expect("load")
+            .expect("config/authority.toml must exist (vendored, active)");
+        assert_eq!(policy.version, 1);
+        assert_eq!(
+            policy.unknown_context,
+            arbiter_core::authority::UnknownContext::Deny
+        );
+        assert!(!policy.rules.is_empty());
+        assert!(policy.policy_sha.starts_with("sha256:"));
+    }
 }

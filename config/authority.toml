@@ -1,0 +1,36 @@
+# authority.toml — role/phase-scoped agent allowlist (RD-006 M3, ACTIVE).
+#
+# VENDORED PINNED COPY. SSOT: steward profiles/authority.yaml
+# AUTHORITY_VENDORED_FROM_SHA = 45eddb3dfc760b943c1204e9b01f86d24d3a1461cf32e77822789e0dc2eeb85a
+# Deterministic YAML->TOML transform (OQ-1): same keys, same rule order.
+# Update procedure: change the SSOT via steward PR, re-vendor here, refresh
+# AUTHORITY_PINNED_SHA in .github/workflows/ci.yml. CI validates this file
+# against the vendored agents-catalog (scripts/check_authority_conformance.py)
+# and pins its sha256.
+#
+# Semantics: pure allowlist, default deny; requests without
+# constraints.authority_context are denied (unknown_context = deny) — Maestro
+# sends the context since RD-006 M4 (Maestro #74).
+
+version = 1
+unknown_context = "deny"
+
+[[rules]]
+role = "implement"
+phase = "execution"
+agents = ["claude_code@*", "codex_cli@gpt-5.5"]
+
+[[rules]]
+role = "review"
+phase = "execution"
+agents = ["claude_code@*"]
+
+[[rules]]
+role = "decompose"
+phase = "authoring"
+agents = ["claude_code@*"]
+
+[[rules]]
+role = "benchmark"
+phase = "execution"
+agents = ["claude_code@*", "codex_cli@*", "opencode@*"]

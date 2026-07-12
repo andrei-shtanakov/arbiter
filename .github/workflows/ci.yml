@@ -74,6 +74,18 @@ jobs:
       - name: pytest (workspace)
         run: uv run python -m pytest tests/ -v
 
+      # RD-006 M3: the vendored authority allowlist must conform to the
+      # vendored agents-catalog and match the pinned SHA (steward
+      # profiles/authority.yaml is the SSOT; re-vendoring updates the pin).
+      - name: Authority vendoring gate (RD-006 M3)
+        env:
+          AUTHORITY_PINNED_SHA: 92742a5ecb0a956307d790af582cc33e1975aee5a461914d304b3883bc7b3fc3
+        run: |
+          uv run python scripts/check_authority_conformance.py \
+            --authority config/authority.toml \
+            --catalog config/agents-catalog.toml
+          echo "${AUTHORITY_PINNED_SHA}  config/authority.toml" | sha256sum -c -
+
   routable-gate:
     name: Routable-flip gate (ADR-ECO-003a D4)
     runs-on: ubuntu-latest

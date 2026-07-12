@@ -99,7 +99,11 @@ async def test_pt01_handshake() -> None:
 @pytest.mark.asyncio
 async def test_pt02_route_simple(client: ArbiterClient) -> None:
     """PT-02: Route a simple bugfix task and get a decision."""
-    decision = await client.route_task("pt02-task", _simple_task())
+    decision = await client.route_task(
+        "pt02-task",
+        _simple_task(),
+        {"authority_context": {"role": "implement", "phase": "execution"}},
+    )
 
     assert decision["task_id"] == "pt02-task"
     assert decision["action"] in ("assign", "fallback")
@@ -129,7 +133,11 @@ async def test_pt02_route_simple(client: ArbiterClient) -> None:
 @pytest.mark.asyncio
 async def test_pt03_route_report_cycle(client: ArbiterClient) -> None:
     """PT-03: Route a task, then report its outcome."""
-    decision = await client.route_task("pt03-task", _simple_task())
+    decision = await client.route_task(
+        "pt03-task",
+        _simple_task(),
+        {"authority_context": {"role": "implement", "phase": "execution"}},
+    )
     agent = decision["chosen_agent"]
 
     outcome = await client.report_outcome(
@@ -206,7 +214,11 @@ async def test_pt06_server_crash_recovery() -> None:
         await c._process.wait()
 
         # Next call should trigger reconnect and succeed
-        decision = await c.route_task("pt06-task", _simple_task())
+        decision = await c.route_task(
+            "pt06-task",
+            _simple_task(),
+            {"authority_context": {"role": "implement", "phase": "execution"}},
+        )
         assert decision["task_id"] == "pt06-task"
         assert decision["action"] in ("assign", "fallback")
     finally:
@@ -246,7 +258,11 @@ async def test_pt07_large_batch(client: ArbiterClient) -> None:
             "complexity": "simple",
             "priority": "normal",
         }
-        decision = await client.route_task(f"batch-{i:03d}", task)
+        decision = await client.route_task(
+            f"batch-{i:03d}",
+            task,
+            {"authority_context": {"role": "implement", "phase": "execution"}},
+        )
         assert decision["task_id"] == f"batch-{i:03d}"
         assert decision["action"] in ("assign", "fallback", "reject")
 
