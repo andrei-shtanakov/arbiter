@@ -1,0 +1,6 @@
+{
+  "policy_sha": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "role": "implement",
+  "phase": "execution",
+  "denied": []
+}

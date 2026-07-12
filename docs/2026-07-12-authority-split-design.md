@@ -113,7 +113,8 @@ rules:
 - **Conformance (CI, сторона arbiter при вендоринге + сторона steward при PR):**
   - каждый `harness` существует в agents-catalog;
   - каждый паттерн матчит ≥1 **routable** агента;
-  - паттерн не матчит retired-модели;
+  - точный паттерн не пинит retired-модель (для `harness@*` достаточно
+    routable-требования: живые ссылки на retired ловит CI самого каталога);
   - роли/фазы — из закрытых словарей §2.
 - Вендоринг: `profiles/authority.yaml` (steward) → `config/authority.toml` (arbiter)
   байт-эквивалентной трансформацией, `AUTHORITY_PINNED_SHA` в CI (паттерн

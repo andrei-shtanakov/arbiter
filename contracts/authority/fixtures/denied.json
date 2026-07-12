@@ -1,0 +1,15 @@
+{
+  "policy_sha": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "role": "review",
+  "phase": "execution",
+  "denied": [
+    {
+      "agent_id": "opencode@glm-5.1",
+      "reason": "no rule for (review, execution) matches"
+    },
+    {
+      "agent_id": "codex_cli@gpt-5.5",
+      "reason": "no rule for (review, execution) matches"
+    }
+  ]
+}

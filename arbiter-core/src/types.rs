@@ -224,6 +224,13 @@ pub struct Constraints {
     /// Current API calls per minute across all agents.
     #[serde(default)]
     pub calls_per_minute: Option<u32>,
+    /// Authority execution context (RD-006): role/phase of the agent run.
+    ///
+    /// Lives in constraints, NOT in the task: it is execution context, not a
+    /// capability feature, and must never enter the 22-dim feature vector or
+    /// DT training semantics (docs/2026-07-12-authority-split-design.md §3).
+    #[serde(default)]
+    pub authority_context: Option<crate::authority::AuthorityContext>,
 }
 
 /// A task currently being executed by an agent (used for scope/branch conflict checks).
@@ -632,6 +639,7 @@ mod tests {
             }],
             retry_count: None,
             calls_per_minute: None,
+            authority_context: None,
         };
         let json = serde_json::to_string(&constraints).unwrap();
         let back: Constraints = serde_json::from_str(&json).unwrap();

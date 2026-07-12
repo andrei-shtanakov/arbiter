@@ -157,6 +157,7 @@ fn bench_route_task(c: &mut Criterion) {
         running_tasks: vec![],
         retry_count: None,
         calls_per_minute: None,
+        authority_context: None,
     };
 
     let mut i: u64 = 0;
@@ -167,6 +168,7 @@ fn bench_route_task(c: &mut Criterion) {
                 black_box(&format!("bench-{i}")),
                 black_box(&task),
                 black_box(&constraints),
+                None, /* authority */
                 Some(black_box(&tree)),
                 &registry,
                 &db,

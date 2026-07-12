@@ -132,6 +132,7 @@ fn bench_config() -> ArbiterConfig {
     ArbiterConfig {
         agents: bench_agents(),
         invariants: bench_invariant_config(),
+        authority: None,
     }
 }
 
@@ -194,6 +195,7 @@ fn bench_route_throughput() -> Result<()> {
         running_tasks: vec![],
         retry_count: None,
         calls_per_minute: None,
+        authority_context: None,
     };
 
     // Warm up
@@ -202,6 +204,7 @@ fn bench_route_throughput() -> Result<()> {
             &format!("warmup-{i}"),
             task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -221,6 +224,7 @@ fn bench_route_throughput() -> Result<()> {
             &format!("bench-{i}"),
             task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -288,6 +292,7 @@ fn bench_route_latency_p99() -> Result<()> {
         running_tasks: vec![],
         retry_count: None,
         calls_per_minute: None,
+        authority_context: None,
     };
 
     for i in 0..n {
@@ -314,6 +319,7 @@ fn bench_route_latency_p99() -> Result<()> {
             &format!("lat-{i}"),
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -469,6 +475,7 @@ fn bench_memory_usage() -> Result<()> {
         running_tasks: vec![],
         retry_count: None,
         calls_per_minute: None,
+        authority_context: None,
     };
 
     let agent_ids = [
@@ -496,6 +503,7 @@ fn bench_memory_usage() -> Result<()> {
             &format!("mem-{i}"),
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,

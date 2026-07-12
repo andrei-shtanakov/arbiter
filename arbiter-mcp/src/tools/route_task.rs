@@ -120,6 +120,9 @@ pub struct RouteResult {
     /// can correlate this routing decision with a later report_outcome and
     /// guard against stale retries. None if the SQLite insert failed.
     pub decision_id: Option<i64>,
+    /// Authority audit block (RD-006); present iff the authority feature is
+    /// enabled (config/authority.toml loaded). Surfaced at metadata.authority.
+    pub authority: Option<arbiter_core::authority::AuthorityAudit>,
 }
 
 /// Convert InvariantConfig to InvariantThresholds for arbiter-core.
@@ -205,6 +208,7 @@ pub fn execute(
     task_id: &str,
     task: &TaskInput,
     constraints: &Constraints,
+    authority: Option<&arbiter_core::authority::AuthorityPolicy>,
     tree: Option<&DecisionTree>,
     registry: &AgentRegistry,
     db: &Database,
@@ -241,6 +245,7 @@ pub fn execute(
             candidates_evaluated: 0,
             warnings: vec!["All agents exceeded failure threshold".to_string()],
             decision_id: None,
+            authority: None,
         };
         result.decision_id = log_decision(db, task_id, task, constraints, &result);
         metrics.record_decision(
@@ -282,6 +287,54 @@ pub fn execute(
         })
         .collect();
 
+    // Step 3b (RD-006): authority filter — "MAY", after capability "CAN".
+    // Runs after the hard filter so the audit never names agents that could
+    // not do the task anyway, and before scoring so unauthorized candidates
+    // never enter feature vectors or ranking logs (design §5).
+    let mut authority_audit: Option<arbiter_core::authority::AuthorityAudit> = None;
+    let candidates: Vec<AgentInfo> = if let Some(policy) = authority {
+        let ids: Vec<String> = candidates.iter().map(|a| a.agent_id.clone()).collect();
+        let (allowed, audit) = arbiter_core::authority::check_authority(
+            policy,
+            constraints.authority_context.as_ref(),
+            &ids,
+        );
+        for denied in &audit.denied {
+            debug!(agent = %denied.agent_id, reason = %denied.reason, "denied by authority");
+        }
+        let survivors: Vec<AgentInfo> = candidates
+            .into_iter()
+            .filter(|a| allowed.contains(&a.agent_id))
+            .collect();
+        if survivors.is_empty() {
+            let inference_us = start.elapsed().as_micros() as i64;
+            let mut result = RouteResult {
+                task_id: task_id.to_string(),
+                action: AgentAction::Reject,
+                chosen_agent: String::new(),
+                confidence: 0.0,
+                reasoning: arbiter_core::authority::REASON_NO_AUTHORIZED.to_string(),
+                decision_path: vec![],
+                fallback_agent: None,
+                fallback_reason: None,
+                invariant_checks: vec![],
+                inference_us,
+                feature_vector: vec![],
+                candidates_evaluated: ids.len(),
+                warnings,
+                decision_id: None,
+                authority: Some(audit),
+            };
+            result.decision_id = log_decision(db, task_id, task, constraints, &result);
+            metrics.record_decision(result.inference_us as u64, false, true);
+            return Ok(result);
+        }
+        authority_audit = Some(audit);
+        survivors
+    } else {
+        candidates
+    };
+
     let candidates_evaluated = candidates.len();
 
     // No candidates at all -> reject
@@ -302,6 +355,7 @@ pub fn execute(
             candidates_evaluated: 0,
             warnings,
             decision_id: None,
+            authority: None,
         };
         result.decision_id = log_decision(db, task_id, task, constraints, &result);
         metrics.record_decision(
@@ -430,6 +484,7 @@ pub fn execute(
                 candidates_evaluated,
                 warnings,
                 decision_id: None,
+                authority: authority_audit.clone(),
             };
 
             // Step 9: Log decision to SQLite (capture rowid for response metadata)
@@ -503,6 +558,7 @@ pub fn execute(
         candidates_evaluated,
         warnings,
         decision_id: None,
+        authority: None,
     };
 
     result.decision_id = log_decision(db, task_id, task, constraints, &result);
@@ -632,6 +688,18 @@ pub fn result_to_json(result: &RouteResult) -> Value {
         })
         .collect();
 
+    let mut metadata = serde_json::json!({
+        "decision_id": result.decision_id,
+        "inference_us": result.inference_us,
+        "feature_vector": result.feature_vector,
+        "candidates_evaluated": result.candidates_evaluated
+    });
+    if let Some(audit) = &result.authority {
+        // Present only when the authority feature is enabled — existing
+        // consumers and golden fixtures never see a null placeholder.
+        metadata["authority"] = serde_json::to_value(audit).unwrap_or(serde_json::Value::Null);
+    }
+
     serde_json::json!({
         "task_id": result.task_id,
         "action": result.action,
@@ -643,12 +711,7 @@ pub fn result_to_json(result: &RouteResult) -> Value {
         "fallback_reason": result.fallback_reason,
         "invariant_checks": invariant_checks,
         "warnings": result.warnings,
-        "metadata": {
-            "decision_id": result.decision_id,
-            "inference_us": result.inference_us,
-            "feature_vector": result.feature_vector,
-            "candidates_evaluated": result.candidates_evaluated
-        }
+        "metadata": metadata
     })
 }
 
@@ -1055,6 +1118,7 @@ mod tests {
             running_tasks: vec![],
             retry_count: None,
             calls_per_minute: None,
+            authority_context: None,
         }
     }
 
@@ -1079,6 +1143,7 @@ mod tests {
             "t1",
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -1120,6 +1185,7 @@ mod tests {
             "t2",
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -1149,6 +1215,7 @@ mod tests {
             "t3",
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -1175,6 +1242,7 @@ mod tests {
             "t4",
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -1204,6 +1272,7 @@ mod tests {
             "t5",
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -1240,6 +1309,7 @@ mod tests {
             candidates_evaluated: 3,
             warnings: vec!["test warning".to_string()],
             decision_id: Some(7),
+            authority: None,
         };
 
         let json = result_to_json(&result);
@@ -1271,6 +1341,7 @@ mod tests {
             candidates_evaluated: 0,
             warnings: vec![],
             decision_id: None,
+            authority: None,
         };
 
         let json = result_to_json(&result);
@@ -1307,6 +1378,7 @@ mod tests {
             "t6",
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -1378,6 +1450,7 @@ mod tests {
             running_tasks: vec![],
             retry_count: None,
             calls_per_minute: None,
+            authority_context: None,
         };
 
         let start = std::time::Instant::now();
@@ -1385,6 +1458,7 @@ mod tests {
             "it-01",
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -1520,12 +1594,14 @@ mod tests {
             }],
             retry_count: None,
             calls_per_minute: None,
+            authority_context: None,
         };
 
         let result = execute(
             "it-02",
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -1610,12 +1686,14 @@ mod tests {
             running_tasks: vec![],
             retry_count: None,
             calls_per_minute: None,
+            authority_context: None,
         };
 
         let result = execute(
             "it-03",
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -1695,12 +1773,14 @@ mod tests {
             running_tasks: vec![],
             retry_count: None,
             calls_per_minute: None,
+            authority_context: None,
         };
 
         let result = execute(
             "it-04",
             &task,
             &constraints,
+            None, /* authority */
             Some(&tree),
             &registry,
             &db,
@@ -1771,6 +1851,7 @@ mod tests {
             "degraded-1",
             &task,
             &constraints,
+            None, /* authority */
             None, // No decision tree
             &registry,
             &db,
@@ -1834,6 +1915,7 @@ mod tests {
                 &format!("rr-{i}"),
                 &task,
                 &constraints,
+                None, /* authority */
                 None,
                 &registry,
                 &db,
@@ -1904,6 +1986,7 @@ mod tests {
             "all-failed",
             &task,
             &constraints,
+            None, /* authority */
             Some(&DecisionTree::from_json(&test_tree_json()).unwrap()),
             &registry,
             &db,
@@ -1957,6 +2040,7 @@ mod tests {
                 "Unknown task_type 'magic', defaulting to 'feature'".to_string(),
             ],
             decision_id: None,
+            authority: None,
         };
 
         let json = result_to_json(&result);
@@ -2043,5 +2127,204 @@ mod tests {
         };
         let ctx = to_agent_context(&info, 5);
         assert_eq!(ctx.state, AgentState::Active);
+    }
+
+    // ------------------------------------------------------------ authority (RD-006)
+
+    fn test_authority_policy(
+        rules: Vec<arbiter_core::authority::AuthorityRule>,
+    ) -> arbiter_core::authority::AuthorityPolicy {
+        arbiter_core::authority::AuthorityPolicy {
+            version: 1,
+            unknown_context: arbiter_core::authority::UnknownContext::Deny,
+            rules,
+            policy_sha: format!("sha256:{}", "a".repeat(64)),
+        }
+    }
+
+    fn authority_constraints(role: &str, phase: &str) -> Constraints {
+        let mut c = empty_constraints();
+        c.authority_context = Some(arbiter_core::authority::AuthorityContext {
+            role: role.to_string(),
+            phase: phase.to_string(),
+        });
+        c
+    }
+
+    #[test]
+    fn authority_filters_to_allowed_agents_and_audits() {
+        let (db, tree) = setup();
+        let agents = test_agents();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
+        let invariant_cfg = test_invariant_config();
+        let policy = test_authority_policy(vec![arbiter_core::authority::AuthorityRule {
+            role: "implement".to_string(),
+            phase: "execution".to_string(),
+            agents: vec!["claude_code@*".to_string()],
+        }]);
+
+        let result = execute(
+            "auth-1",
+            &simple_task(),
+            &authority_constraints("implement", "execution"),
+            Some(&policy),
+            Some(&tree),
+            &registry,
+            &db,
+            &invariant_cfg,
+            &crate::metrics::Metrics::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.action, AgentAction::Assign);
+        assert!(result.chosen_agent.starts_with("claude_code@"));
+        let audit = result
+            .authority
+            .expect("audit must be present when enabled");
+        assert!(audit.policy_sha.starts_with("sha256:"));
+        assert!(
+            audit
+                .denied
+                .iter()
+                .all(|d| !d.agent_id.starts_with("claude_code@")),
+            "allowed agents must not appear in denied: {:?}",
+            audit.denied
+        );
+    }
+
+    #[test]
+    fn authority_all_denied_is_first_class_reject() {
+        let (db, tree) = setup();
+        let agents = test_agents();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
+        let invariant_cfg = test_invariant_config();
+        // Policy allows only an agent that is not in the registry.
+        let policy = test_authority_policy(vec![arbiter_core::authority::AuthorityRule {
+            role: "review".to_string(),
+            phase: "execution".to_string(),
+            agents: vec!["gemini_cli@gemini-3".to_string()],
+        }]);
+
+        let result = execute(
+            "auth-2",
+            &simple_task(),
+            &authority_constraints("review", "execution"),
+            Some(&policy),
+            Some(&tree),
+            &registry,
+            &db,
+            &invariant_cfg,
+            &crate::metrics::Metrics::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.action, AgentAction::Reject);
+        assert_eq!(
+            result.reasoning,
+            arbiter_core::authority::REASON_NO_AUTHORIZED
+        );
+        let audit = result.authority.expect("audit on reject");
+        assert!(!audit.denied.is_empty());
+        assert!(
+            result.decision_id.is_some(),
+            "denial must be logged as a decision"
+        );
+    }
+
+    #[test]
+    fn authority_missing_context_denies_fail_closed() {
+        let (db, tree) = setup();
+        let agents = test_agents();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
+        let invariant_cfg = test_invariant_config();
+        let policy = test_authority_policy(vec![]);
+
+        let result = execute(
+            "auth-3",
+            &simple_task(),
+            &empty_constraints(), // no authority_context
+            Some(&policy),
+            Some(&tree),
+            &registry,
+            &db,
+            &invariant_cfg,
+            &crate::metrics::Metrics::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.action, AgentAction::Reject);
+        assert_eq!(
+            result.reasoning,
+            arbiter_core::authority::REASON_NO_AUTHORIZED
+        );
+    }
+
+    #[test]
+    fn authority_disabled_means_no_audit_block() {
+        let (db, tree) = setup();
+        let agents = test_agents();
+        let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
+        let invariant_cfg = test_invariant_config();
+
+        let result = execute(
+            "auth-4",
+            &simple_task(),
+            &empty_constraints(),
+            None,
+            Some(&tree),
+            &registry,
+            &db,
+            &invariant_cfg,
+            &crate::metrics::Metrics::new(),
+        )
+        .unwrap();
+        assert!(result.authority.is_none());
+    }
+
+    #[test]
+    fn metadata_carries_authority_audit_in_json() {
+        let audit = arbiter_core::authority::AuthorityAudit {
+            policy_sha: format!("sha256:{}", "b".repeat(64)),
+            role: Some("implement".to_string()),
+            phase: Some("execution".to_string()),
+            denied: vec![arbiter_core::authority::AuthorityDenied {
+                agent_id: "opencode@glm-5.1".to_string(),
+                reason: "no rule for (implement, execution) matches".to_string(),
+            }],
+        };
+        let result = RouteResult {
+            task_id: "t".to_string(),
+            action: AgentAction::Assign,
+            chosen_agent: "claude_code@x".to_string(),
+            confidence: 0.9,
+            reasoning: "ok".to_string(),
+            decision_path: vec![],
+            fallback_agent: None,
+            fallback_reason: None,
+            invariant_checks: vec![],
+            inference_us: 1,
+            feature_vector: vec![],
+            candidates_evaluated: 1,
+            warnings: vec![],
+            decision_id: Some(1),
+            authority: Some(audit),
+        };
+        let json = result_to_json(&result);
+        assert_eq!(
+            json["metadata"]["authority"]["denied"][0]["agent_id"],
+            "opencode@glm-5.1"
+        );
+        assert!(json["metadata"]["authority"]["policy_sha"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:"));
+
+        // Disabled feature -> no authority key at all (goldens stay stable).
+        let without = RouteResult {
+            authority: None,
+            ..result
+        };
+        let json = result_to_json(&without);
+        assert!(json["metadata"].get("authority").is_none());
     }
 }
