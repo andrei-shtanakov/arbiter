@@ -41,7 +41,7 @@ safety per-candidate после ранжирования).
   routing уже потребляет (agent_id `harness@model`, supports_*, слоты,
   stats/benchmark-ключи). Без изменений поведения.
 - Policy-данные: SSOT `steward/profiles/authority.yaml` (steward-side PR) →
-  вендоринг в `arbiter/config/authority.toml` (пиненая копия, hot-reload по
+  вендоринг в `config/authority.toml` (arbiter) (пиненая копия, hot-reload по
   паттерну `invariants.toml`/`watcher.rs`, pinned-SHA CI-check по паттерну
   agents-catalog).
 - Enforcement: новая стадия в `route_task::execute` **после** capability
