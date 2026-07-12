@@ -623,6 +623,7 @@ impl McpServer {
                 running_tasks: vec![],
                 retry_count: None,
                 calls_per_minute: None,
+                authority_context: None,
             });
 
         // Acquire read locks for hot-reloadable state
@@ -635,6 +636,7 @@ impl McpServer {
             task_id,
             &task,
             &constraints,
+            config.authority.as_ref(),
             tree_guard.as_ref(),
             &registry,
             &self.db,
@@ -947,6 +949,7 @@ mod tests {
         );
         ArbiterConfig {
             agents,
+            authority: None,
             invariants: InvariantConfig {
                 budget: BudgetConfig {
                     threshold_usd: 10.0,

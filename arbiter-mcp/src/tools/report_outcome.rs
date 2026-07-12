@@ -263,6 +263,7 @@ mod tests {
         );
         ArbiterConfig {
             agents,
+            authority: None,
             invariants: InvariantConfig {
                 budget: BudgetConfig {
                     threshold_usd: 10.0,

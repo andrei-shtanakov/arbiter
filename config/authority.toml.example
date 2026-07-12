@@ -1,0 +1,38 @@
+# authority.toml — role/phase-scoped agent allowlist (RD-006).
+#
+# NOT ACTIVE under this name: rename to `authority.toml` to enable the
+# authority feature. Without the file, route_task behaves exactly as before.
+#
+# SSOT of this data is steward `profiles/authority.yaml` (governance,
+# PR-reviewed); this file is the pinned vendored copy (agents-catalog
+# pattern). Validate against the catalog with:
+#   uv run python scripts/check_authority_conformance.py \
+#       --authority config/authority.toml --catalog config/agents-catalog.toml
+#
+# Semantics: pure allowlist, default deny; patterns are exactly
+# `harness@model` or `harness@*`; requests without constraints.authority_context
+# are decided by unknown_context (deny = fail-closed default).
+# Design: docs/2026-07-12-authority-split-design.md
+
+version = 1
+unknown_context = "deny"
+
+[[rules]]
+role = "implement"
+phase = "execution"
+agents = ["claude_code@*", "codex_cli@gpt-5.5"]
+
+[[rules]]
+role = "review"
+phase = "execution"
+agents = ["claude_code@*"]
+
+[[rules]]
+role = "decompose"
+phase = "authoring"
+agents = ["claude_code@*"]
+
+[[rules]]
+role = "benchmark"
+phase = "execution"
+agents = ["claude_code@*", "codex_cli@*", "opencode@*"]

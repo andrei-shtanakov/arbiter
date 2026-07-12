@@ -99,6 +99,9 @@ pub struct ArbiterConfig {
     pub agents: HashMap<String, AgentConfig>,
     /// Invariant rule thresholds.
     pub invariants: InvariantConfig,
+    /// Authority allowlist policy (RD-006). `None` = feature disabled
+    /// (no `authority.toml` in the config dir) — zero behavior change.
+    pub authority: Option<arbiter_core::authority::AuthorityPolicy>,
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +198,56 @@ pub fn load_config(config_dir: &Path) -> Result<ArbiterConfig> {
     validate_agents(&agents)?;
     let invariants = load_invariants(config_dir)?;
     validate_invariants(&invariants)?;
-    Ok(ArbiterConfig { agents, invariants })
+    let authority = load_authority(config_dir)?;
+    Ok(ArbiterConfig {
+        agents,
+        invariants,
+        authority,
+    })
+}
+
+/// On-disk shape of `authority.toml` (vendored from steward, design §4).
+#[derive(Debug, serde::Deserialize)]
+struct AuthorityToml {
+    version: u32,
+    #[serde(default = "default_unknown_context")]
+    unknown_context: arbiter_core::authority::UnknownContext,
+    #[serde(default)]
+    rules: Vec<arbiter_core::authority::AuthorityRule>,
+}
+
+fn default_unknown_context() -> arbiter_core::authority::UnknownContext {
+    arbiter_core::authority::UnknownContext::Deny
+}
+
+/// Load the authority policy from `authority.toml`, if present.
+///
+/// Absent file -> `Ok(None)` (feature off). A present-but-invalid file is a
+/// hard error: installing a broken allowlist silently would be fail-open.
+/// `policy_sha` is the sha256 of the raw file bytes (audit provenance).
+pub fn load_authority(
+    config_dir: &Path,
+) -> Result<Option<arbiter_core::authority::AuthorityPolicy>> {
+    use sha2::{Digest, Sha256};
+
+    let path = config_dir.join("authority.toml");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = std::fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let parsed: AuthorityToml = toml::from_str(
+        std::str::from_utf8(&raw).with_context(|| format!("{} is not UTF-8", path.display()))?,
+    )
+    .with_context(|| format!("failed to parse {}", path.display()))?;
+    let policy = arbiter_core::authority::AuthorityPolicy {
+        version: parsed.version,
+        unknown_context: parsed.unknown_context,
+        rules: parsed.rules,
+        policy_sha: format!("sha256:{:x}", Sha256::digest(&raw)),
+    };
+    arbiter_core::authority::validate_policy(&policy)
+        .map_err(|e| anyhow::anyhow!("invalid {}: {e}", path.display()))?;
+    Ok(Some(policy))
 }
 
 // ---------------------------------------------------------------------------

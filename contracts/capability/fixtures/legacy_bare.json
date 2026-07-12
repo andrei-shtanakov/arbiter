@@ -1,0 +1,6 @@
+{
+  "agent_id": "aider",
+  "supports_types": ["bugfix", "refactor", "test"],
+  "supports_languages": ["python", "javascript"],
+  "max_concurrent": 5
+}

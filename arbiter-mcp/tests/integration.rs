@@ -127,6 +127,7 @@ fn test_config() -> ArbiterConfig {
     ArbiterConfig {
         agents: test_agents(),
         invariants: test_invariant_config(),
+        authority: None,
     }
 }
 
@@ -243,6 +244,7 @@ fn open_constraints() -> Constraints {
         running_tasks: vec![],
         retry_count: None,
         calls_per_minute: None,
+        authority_context: None,
     }
 }
 
@@ -282,6 +284,7 @@ fn route_with_weight(
         "it-08",
         task,
         &open_constraints(),
+        None, /* authority */
         Some(tree),
         registry,
         db,
@@ -430,6 +433,7 @@ fn it_01_happy_path() {
         running_tasks: vec![],
         retry_count: None,
         calls_per_minute: None,
+        authority_context: None,
     };
 
     let start = std::time::Instant::now();
@@ -437,6 +441,7 @@ fn it_01_happy_path() {
         "it-01",
         &task,
         &constraints,
+        None, /* authority */
         Some(&tree),
         &registry,
         &db,
@@ -578,12 +583,14 @@ fn it_02_fallback_on_scope_conflict() {
         }],
         retry_count: None,
         calls_per_minute: None,
+        authority_context: None,
     };
 
     let result = route_task::execute(
         "it-02",
         &task,
         &constraints,
+        None, /* authority */
         Some(&tree),
         &registry,
         &db,
@@ -678,12 +685,14 @@ fn it_03_all_rejected() {
         running_tasks: vec![],
         retry_count: None,
         calls_per_minute: None,
+        authority_context: None,
     };
 
     let result = route_task::execute(
         "it-03",
         &task,
         &constraints,
+        None, /* authority */
         Some(&tree),
         &registry,
         &db,
@@ -774,12 +783,14 @@ fn it_04_cold_start() {
         running_tasks: vec![],
         retry_count: None,
         calls_per_minute: None,
+        authority_context: None,
     };
 
     let result = route_task::execute(
         "it-04",
         &task,
         &constraints,
+        None, /* authority */
         Some(&tree),
         &registry,
         &db,
@@ -1113,6 +1124,7 @@ fn it_07_concurrent_routing_3x() {
                 running_tasks: vec![],
                 retry_count: None,
                 calls_per_minute: None,
+                authority_context: None,
             };
 
             // Synchronize: all threads start routing at the same time
@@ -1122,6 +1134,7 @@ fn it_07_concurrent_routing_3x() {
                 task_id,
                 &task,
                 &constraints,
+                None, /* authority */
                 Some(&tree),
                 &registry,
                 &db,
@@ -1639,6 +1652,7 @@ fn feature_vector_and_dt_determinism() {
             running_tasks: vec![],
             retry_count: None,
             calls_per_minute: None,
+            authority_context: None,
         },
         total_running_tasks: 3,
         time_of_day_hour: 14,

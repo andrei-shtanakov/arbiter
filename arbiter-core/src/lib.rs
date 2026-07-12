@@ -3,6 +3,7 @@
 //! Pure logic: types, Decision Tree inference, invariant rules, metrics.
 //! No I/O, no SQLite, no network.
 
+pub mod authority;
 pub mod catalog;
 pub mod error;
 pub mod invariant;

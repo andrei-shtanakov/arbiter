@@ -1,0 +1,6 @@
+{
+  "agent_id": "claude_code@claude-sonnet-4-6",
+  "supports_types": ["feature", "bugfix", "refactor", "test"],
+  "supports_languages": ["python", "rust", "typescript"],
+  "max_concurrent": 3
+}

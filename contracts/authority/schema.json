@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/andrei-shtanakov/arbiter/contracts/authority/schema.json",
+  "title": "Authority v1",
+  "description": "Authority audit block (RD-006): the role/phase-scoped allowlist verdict attached to a routing decision at metadata.authority. Present iff the authority feature is enabled. See rationale.md and docs/2026-07-12-authority-split-design.md. The definitions.authority_context object is the wire input accepted at constraints.authority_context.",
+  "type": "object",
+  "required": ["policy_sha", "role", "phase", "denied"],
+  "additionalProperties": false,
+  "properties": {
+    "policy_sha": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "sha256 of the loaded authority policy file — audit provenance; a decision can be reproduced against the exact policy that made it."
+    },
+    "role": {
+      "enum": ["decompose", "implement", "review", "benchmark", null],
+      "description": "Agent-run role from the request context; null when the request carried no authority_context."
+    },
+    "phase": {
+      "enum": ["authoring", "execution", "merge", "pr", null],
+      "description": "Coarse lifecycle phase from the request context; null when the request carried no authority_context."
+    },
+    "denied": {
+      "type": "array",
+      "description": "Capability-eligible candidates the allowlist rejected, with reasons. Empty when everyone eligible was authorized.",
+      "items": {
+        "type": "object",
+        "required": ["agent_id", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {"type": "string", "minLength": 1},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "definitions": {
+    "authority_context": {
+      "type": "object",
+      "description": "Wire input at constraints.authority_context. Execution context, NOT a task feature: it must never enter the 22-dim feature vector or DT training semantics.",
+      "required": ["role", "phase"],
+      "additionalProperties": false,
+      "properties": {
+        "role": {"enum": ["decompose", "implement", "review", "benchmark"]},
+        "phase": {"enum": ["authoring", "execution", "merge", "pr"]}
+      }
+    }
+  }
+}

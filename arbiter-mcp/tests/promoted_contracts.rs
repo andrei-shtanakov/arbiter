@@ -76,6 +76,7 @@ fn test_config(threshold_usd: f64) -> ArbiterConfig {
     );
     ArbiterConfig {
         agents,
+        authority: None,
         invariants: InvariantConfig {
             budget: BudgetConfig { threshold_usd },
             retries: RetriesConfig { max_retries: 3 },
@@ -221,6 +222,7 @@ fn policy_decision_ref_from_live_route_response_matches_schema() {
         candidates_evaluated: 4,
         warnings: vec![],
         decision_id: Some(22),
+        authority: None,
     };
     let response = result_to_json(&result);
     assert_valid(
@@ -264,5 +266,132 @@ fn policy_decision_ref_fixtures_match_schema() {
             .map(|e| e.error.to_string())
             .collect();
         assert!(errors.is_empty(), "{path:?}: {errors:?}");
+    }
+}
+
+// --------------------------------------------------------- Authority v1
+
+#[test]
+fn authority_fixtures_match_schema() {
+    let schema = contract_schema("authority");
+    for (path, fixture) in fixtures("authority") {
+        let errors: Vec<String> = schema
+            .evaluate(&fixture)
+            .iter_errors()
+            .map(|e| e.error.to_string())
+            .collect();
+        assert!(errors.is_empty(), "{path:?}: {errors:?}");
+    }
+}
+
+#[test]
+fn authority_live_audit_matches_schema() {
+    use arbiter_core::authority::{
+        AuthorityContext, AuthorityPolicy, AuthorityRule, UnknownContext,
+    };
+    use arbiter_core::types::{Complexity, Language, Priority, TaskInput, TaskType};
+    use arbiter_mcp::agents::AgentRegistry;
+    use arbiter_mcp::tools::route_task;
+    use std::sync::Arc;
+
+    let schema = contract_schema("authority");
+    let config = test_config(100.0);
+    let db = Arc::new(Database::open_in_memory().unwrap());
+    db.migrate().unwrap();
+    let registry = AgentRegistry::new(Arc::clone(&db), &config.agents).unwrap();
+
+    let policy = AuthorityPolicy {
+        version: 1,
+        unknown_context: UnknownContext::Deny,
+        rules: vec![AuthorityRule {
+            role: "review".to_string(),
+            phase: "execution".to_string(),
+            // Allow an agent that is not in the registry -> live REJECT + denied list.
+            agents: vec!["gemini_cli@gemini-3".to_string()],
+        }],
+        policy_sha: format!("sha256:{}", "c".repeat(64)),
+    };
+    let task = TaskInput {
+        task_type: TaskType::Bugfix,
+        language: Language::Python,
+        complexity: Complexity::Simple,
+        priority: Priority::Normal,
+        scope: vec![],
+        branch: None,
+        estimated_tokens: None,
+        has_dependencies: false,
+        requires_internet: false,
+        sla_minutes: None,
+        description: None,
+    };
+    let mut constraints = arbiter_core::types::Constraints {
+        preferred_agent: None,
+        excluded_agents: vec![],
+        budget_remaining_usd: None,
+        total_pending_tasks: None,
+        running_tasks: vec![],
+        retry_count: None,
+        calls_per_minute: None,
+        authority_context: None,
+    };
+    constraints.authority_context = Some(AuthorityContext {
+        role: "review".to_string(),
+        phase: "execution".to_string(),
+    });
+
+    let result = route_task::execute(
+        "authority-live",
+        &task,
+        &constraints,
+        Some(&policy),
+        None,
+        &registry,
+        &db,
+        &config.invariants,
+        &arbiter_mcp::metrics::Metrics::new(),
+    )
+    .unwrap();
+    let response = result_to_json(&result);
+
+    assert_eq!(response["reasoning"], "authority_no_authorized_candidates");
+    let audit = &response["metadata"]["authority"];
+    assert!(
+        !audit.is_null(),
+        "audit must be surfaced at metadata.authority"
+    );
+    assert_valid(&schema, audit);
+}
+
+// -------------------------------------------------------- Capability v1
+
+/// Build the capability projection exactly as a consumer would.
+fn capability_record(agent_id: &str, config: &AgentConfig) -> Value {
+    json!({
+        "agent_id": agent_id,
+        "supports_types": config.supports_types,
+        "supports_languages": config.supports_languages,
+        "max_concurrent": config.max_concurrent,
+    })
+}
+
+#[test]
+fn capability_fixtures_match_schema() {
+    let schema = contract_schema("capability");
+    for (path, fixture) in fixtures("capability") {
+        let errors: Vec<String> = schema
+            .evaluate(&fixture)
+            .iter_errors()
+            .map(|e| e.error.to_string())
+            .collect();
+        assert!(errors.is_empty(), "{path:?}: {errors:?}");
+    }
+}
+
+#[test]
+fn capability_live_projection_matches_schema() {
+    let schema = contract_schema("capability");
+    let config = test_config(100.0);
+    for (agent_id, agent) in &config.agents {
+        assert_valid(&schema, &capability_record(agent_id, agent));
     }
 }
