@@ -170,6 +170,7 @@ fn bench_route_task(c: &mut Criterion) {
                 black_box(&constraints),
                 None, /* authority */
                 Some(black_box(&tree)),
+                None, /* shadow_tree */
                 &registry,
                 &db,
                 &invariant_cfg,
