@@ -271,6 +271,7 @@ mod tests {
             invariants_passed: 10,
             invariants_failed: 0,
             inference_us: 50,
+            shadow_json: None,
         };
         let decision_id = db.insert_decision(&decision).unwrap();
 

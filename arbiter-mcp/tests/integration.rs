@@ -190,6 +190,7 @@ fn sample_decision(task_id: &str) -> DecisionRecord {
         invariants_passed: 10,
         invariants_failed: 0,
         inference_us: 42,
+        shadow_json: None,
     }
 }
 
@@ -248,6 +249,42 @@ fn open_constraints() -> Constraints {
     }
 }
 
+/// Serializes env-mutating tests: ARBITER_BENCH_WEIGHT and
+/// ARBITER_SHADOW_BENCH_WEIGHT bleed across test threads. Poison-tolerant so
+/// one panicked test does not cascade.
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// RAII env-var setter: restores the previous value on drop, so a panicking
+/// `execute` cannot leak the variable into other tests (unwind-safe cleanup).
+struct EnvVar {
+    key: &'static str,
+    prev: Option<String>,
+}
+
+impl EnvVar {
+    fn set(key: &'static str, value: Option<&str>) -> Self {
+        let prev = std::env::var(key).ok();
+        match value {
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
+        }
+        Self { key, prev }
+    }
+}
+
+impl Drop for EnvVar {
+    fn drop(&mut self) {
+        match &self.prev {
+            Some(v) => std::env::set_var(self.key, v),
+            None => std::env::remove_var(self.key),
+        }
+    }
+}
+
 fn seed_benchmark(db: &Database, agent: &str, bench: &str, score: f64) {
     db.insert_benchmark_run(&BenchmarkRunInput {
         run_id: &format!("{agent}-{bench}"),
@@ -275,25 +312,23 @@ fn route_with_weight(
     task: &TaskInput,
     weight: f64,
 ) -> route_task::RouteResult {
-    if weight > 0.0 {
-        std::env::set_var("ARBITER_BENCH_WEIGHT", weight.to_string());
-    } else {
-        std::env::remove_var("ARBITER_BENCH_WEIGHT");
-    }
-    let r = route_task::execute(
+    let _env = EnvVar::set(
+        "ARBITER_BENCH_WEIGHT",
+        (weight > 0.0).then(|| weight.to_string()).as_deref(),
+    );
+    route_task::execute(
         "it-08",
         task,
         &open_constraints(),
         None, /* authority */
         Some(tree),
+        None, /* shadow_tree */
         registry,
         db,
         inv,
         &arbiter_mcp::metrics::Metrics::new(),
     )
-    .unwrap();
-    std::env::remove_var("ARBITER_BENCH_WEIGHT");
-    r
+    .unwrap()
 }
 
 /// IT-08: benchmark scores re-rank the Review route, and scoping holds for Docs.
@@ -311,6 +346,7 @@ fn route_with_weight(
 /// real-world signal magnitude (that is the live A/B in Task 4).
 #[test]
 fn it_08_benchmark_weight_shifts_review_route_and_scopes_docs() {
+    let _g = env_guard();
     let db = Database::open_in_memory().unwrap();
     db.migrate().unwrap();
     let db = Arc::new(db);
@@ -443,6 +479,7 @@ fn it_01_happy_path() {
         &constraints,
         None, /* authority */
         Some(&tree),
+        None, /* shadow_tree */
         &registry,
         &db,
         &invariant_cfg,
@@ -592,6 +629,7 @@ fn it_02_fallback_on_scope_conflict() {
         &constraints,
         None, /* authority */
         Some(&tree),
+        None, /* shadow_tree */
         &registry,
         &db,
         &invariant_cfg,
@@ -694,6 +732,7 @@ fn it_03_all_rejected() {
         &constraints,
         None, /* authority */
         Some(&tree),
+        None, /* shadow_tree */
         &registry,
         &db,
         &invariant_cfg,
@@ -792,6 +831,7 @@ fn it_04_cold_start() {
         &constraints,
         None, /* authority */
         Some(&tree),
+        None, /* shadow_tree */
         &registry,
         &db,
         &invariant_cfg,
@@ -1136,6 +1176,7 @@ fn it_07_concurrent_routing_3x() {
                 &constraints,
                 None, /* authority */
                 Some(&tree),
+                None, /* shadow_tree */
                 &registry,
                 &db,
                 &invariant_cfg,
@@ -1206,7 +1247,15 @@ fn mcp_server_handshake_and_tools_list() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     // Step 1: Initialize
     let resp = dispatch(
@@ -1264,7 +1313,15 @@ fn tools_list_includes_report_benchmark() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     let resp = dispatch(
         &mut server,
@@ -1300,7 +1357,15 @@ fn tools_call_report_benchmark_dispatches() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -1354,7 +1419,15 @@ fn initialize_advertises_protocol_version_1_1_0() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     let resp = dispatch(
         &mut server,
@@ -1383,7 +1456,15 @@ fn mcp_protocol_error_handling() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     // Unknown method → -32601
     let resp = dispatch(
@@ -1420,7 +1501,15 @@ fn mcp_route_task_e2e() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -1486,7 +1575,15 @@ fn mcp_report_and_status_e2e() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     // Route a task first
     let route_req = serde_json::json!({
@@ -1773,4 +1870,240 @@ fn feature_vector_and_dt_determinism() {
         );
         assert!(!pred1.path.is_empty(), "decision path should be non-empty");
     }
+}
+
+// ===========================================================================
+// Shadow routing P1 (Task 3): shadow_json, DTO freeze, S1 + RR1 regressions
+// ===========================================================================
+
+/// Route with an optional ARBITER_SHADOW_BENCH_WEIGHT (weight-only shadow).
+/// Callers MUST hold `env_guard()` — env vars bleed across test threads.
+fn route_with_shadow_weight(
+    db: &Arc<Database>,
+    registry: &AgentRegistry,
+    tree: Option<&DecisionTree>,
+    inv: &InvariantConfig,
+    task: &TaskInput,
+    task_id: &str,
+    shadow_weight: Option<f64>,
+) -> route_task::RouteResult {
+    let _env = EnvVar::set(
+        "ARBITER_SHADOW_BENCH_WEIGHT",
+        shadow_weight.map(|w| w.to_string()).as_deref(),
+    );
+    route_task::execute(
+        task_id,
+        task,
+        &open_constraints(),
+        None, /* authority */
+        tree,
+        None, /* shadow_tree */
+        registry,
+        db,
+        inv,
+        &arbiter_mcp::metrics::Metrics::new(),
+    )
+    .unwrap()
+}
+
+/// Shadow test 1: an active shadow writes decisions.shadow_json with the six
+/// snapshot keys; an inactive shadow leaves it NULL.
+#[test]
+fn shadow_json_written_on_assign_and_null_without_shadow() {
+    let _g = env_guard();
+    let db = Database::open_in_memory().unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tree = bootstrap_tree();
+    let agents = review_test_agents();
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
+    let inv = test_invariant_config();
+    let task = task_of_type(TaskType::Review);
+
+    let r_on = route_with_shadow_weight(
+        &db,
+        &registry,
+        Some(&tree),
+        &inv,
+        &task,
+        "sh-on",
+        Some(0.15),
+    );
+    assert_eq!(r_on.action, AgentAction::Assign);
+    let sj = db
+        .get_decision_shadow_json("sh-on")
+        .unwrap()
+        .expect("active shadow must write shadow_json");
+    let v: serde_json::Value = serde_json::from_str(&sj).unwrap();
+    for key in [
+        "agent",
+        "confidence",
+        "tree",
+        "bench_weight",
+        "live_top1",
+        "agrees_with_live",
+    ] {
+        assert!(v.get(key).is_some(), "shadow_json missing key {key}");
+    }
+
+    db.reset_all_running_tasks().unwrap();
+    let _r_off = route_with_shadow_weight(&db, &registry, Some(&tree), &inv, &task, "sh-off", None);
+    assert!(
+        db.get_decision_shadow_json("sh-off").unwrap().is_none(),
+        "inactive shadow must leave shadow_json NULL"
+    );
+}
+
+/// Shadow test 2 (RR2, R3 + S1 in one assertion): the MCP response with the
+/// shadow ON (and DISAGREEING) is identical to the response with the shadow
+/// OFF after stripping exactly two volatile fields — metadata.inference_us
+/// (live timer) and metadata.decision_id (autoincrement rowid). A naive
+/// byte-for-byte compare can NEVER pass; everything else, including
+/// `reasoning` and `decision_path`, must match exactly.
+#[test]
+fn shadow_never_changes_live_route_or_dto() {
+    let _g = env_guard();
+    let db = Database::open_in_memory().unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tree = bootstrap_tree();
+    let agents = review_test_agents();
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
+    let inv = test_invariant_config();
+    let task = task_of_type(TaskType::Review);
+
+    // Learn the live winner, then seed the OTHER agent to dominate the shadow
+    // re-rank (weight 2.0 forces the flip — mirrors it_08) while the live
+    // route (no ARBITER_BENCH_WEIGHT) never reads the scores.
+    let base = route_with_shadow_weight(&db, &registry, Some(&tree), &inv, &task, "dto-base", None);
+    let winner = base.chosen_agent.clone();
+    let other = if winner == "claude_code@claude-sonnet-4-6" {
+        "aider"
+    } else {
+        "claude_code@claude-sonnet-4-6"
+    };
+    seed_benchmark(&db, other, "code-review", 1.0);
+    seed_benchmark(&db, &winner, "code-review", 0.0);
+
+    db.reset_all_running_tasks().unwrap();
+    let r_off = route_with_shadow_weight(&db, &registry, Some(&tree), &inv, &task, "dto-cmp", None);
+    db.reset_all_running_tasks().unwrap();
+    let r_on = route_with_shadow_weight(
+        &db,
+        &registry,
+        Some(&tree),
+        &inv,
+        &task,
+        "dto-cmp",
+        Some(2.0),
+    );
+
+    // The shadow really disagreed (otherwise this test proves nothing).
+    let sj = db.get_decision_shadow_json("dto-cmp").unwrap().unwrap();
+    let v: serde_json::Value = serde_json::from_str(&sj).unwrap();
+    assert_eq!(
+        v["agrees_with_live"], false,
+        "seeded weight 2.0 must flip the shadow pick"
+    );
+    assert_eq!(v["agent"], other);
+
+    let mut j_off = route_task::result_to_json(&r_off);
+    let mut j_on = route_task::result_to_json(&r_on);
+    for j in [&mut j_off, &mut j_on] {
+        let md = j["metadata"].as_object_mut().unwrap();
+        md.remove("inference_us");
+        md.remove("decision_id");
+    }
+    assert_eq!(
+        j_off, j_on,
+        "MCP response must be identical with shadow on/off modulo inference_us + decision_id"
+    );
+}
+
+/// Shadow test 3 (S1): a shadow-side DB failure degrades to shadow_json NULL
+/// while the live route succeeds untouched. The benchmark_runs table is
+/// dropped via a second raw connection; the live re-rank (weight 0.0)
+/// early-returns before touching it, the shadow re-rank (weight 0.15) errors.
+#[test]
+fn shadow_error_degrades_to_null() {
+    let _g = env_guard();
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("shadow_err.db");
+    let db = Database::open(&path).unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let tree = bootstrap_tree();
+    let agents = review_test_agents();
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
+    let inv = test_invariant_config();
+
+    let raw = rusqlite::Connection::open(&path).unwrap();
+    raw.execute_batch("DROP TABLE benchmark_runs;").unwrap();
+
+    let r = route_with_shadow_weight(
+        &db,
+        &registry,
+        Some(&tree),
+        &inv,
+        &task_of_type(TaskType::Review),
+        "sh-err",
+        Some(0.15),
+    );
+    assert_eq!(
+        r.action,
+        AgentAction::Assign,
+        "live route must survive (S1)"
+    );
+    assert!(
+        db.get_decision_shadow_json("sh-err").unwrap().is_none(),
+        "shadow error must degrade to NULL"
+    );
+}
+
+/// Shadow test 4 (RR1 regression — the test the original design would have
+/// failed): in degraded live mode (no tree -> round-robin) an active shadow
+/// must not advance the global ROUND_ROBIN_COUNTER, so the sequence of live
+/// picks is identical with the shadow on and off.
+///
+/// RR4: the config MUST have exactly 2 candidate agents — the counter is
+/// never reset between runs, so the control comparison is only sound when
+/// 2 % n == 0 (with 3 candidates this test false-fails on correct code).
+/// Held under env_guard like every env-touching test; the counter is shared
+/// by the whole test binary.
+#[test]
+fn shadow_does_not_advance_round_robin_in_degraded_mode() {
+    let _g = env_guard();
+    let db = Database::open_in_memory().unwrap();
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+    let agents = review_test_agents(); // exactly 2 candidates (RR4)
+    assert_eq!(agents.len(), 2, "RR4: this test requires exactly 2 agents");
+    let registry = AgentRegistry::new(Arc::clone(&db), &agents).unwrap();
+    let inv = test_invariant_config();
+    let task = task_of_type(TaskType::Review);
+
+    let route_seq = |on: bool, tag: &str| -> Vec<String> {
+        (0..2)
+            .map(|i| {
+                db.reset_all_running_tasks().unwrap();
+                route_with_shadow_weight(
+                    &db,
+                    &registry,
+                    None, /* degraded: no live tree */
+                    &inv,
+                    &task,
+                    &format!("rr-{tag}-{i}"),
+                    if on { Some(0.15) } else { None },
+                )
+                .chosen_agent
+            })
+            .collect()
+    };
+
+    let seq_on = route_seq(true, "on");
+    let seq_off = route_seq(false, "off");
+    assert_eq!(
+        seq_on, seq_off,
+        "an active shadow must not shift the degraded-mode round-robin sequence"
+    );
 }

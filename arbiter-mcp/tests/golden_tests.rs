@@ -66,7 +66,15 @@ fn build_server() -> McpServer {
     let metrics = Arc::new(Metrics::new());
     let shutdown = Arc::new(AtomicBool::new(false));
 
-    McpServer::new(config, db, tree, registry, metrics, shutdown)
+    McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    )
 }
 
 /// Collect and sort `.jsonl` fixture files from the golden directory.

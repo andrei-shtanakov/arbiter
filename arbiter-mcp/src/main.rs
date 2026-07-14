@@ -21,6 +21,9 @@ use tracing::info;
 struct CliArgs {
     /// Path to decision tree JSON file.
     tree: PathBuf,
+    /// Path to shadow (candidate) decision tree JSON file, if any
+    /// (shadow routing P1; loaded once at startup, no hot reload).
+    shadow_tree: Option<PathBuf>,
     /// Path to config directory (agents.toml, invariants.toml).
     config_dir: PathBuf,
     /// Path to SQLite database.
@@ -33,15 +36,17 @@ impl CliArgs {
     /// Parse CLI arguments from `std::env::args`.
     ///
     /// Supports:
-    ///   --tree <PATH>       [default: models/agent_policy_tree.json]
-    ///   --config <DIR>      [default: config/]
-    ///   --db <PATH>         [default: arbiter.db]
-    ///   --log-level <LEVEL> [default: info]
+    ///   --tree <PATH>        [default: models/agent_policy_tree.json]
+    ///   --shadow-tree <PATH> [default: none — shadow routing disabled]
+    ///   --config <DIR>       [default: config/]
+    ///   --db <PATH>          [default: arbiter.db]
+    ///   --log-level <LEVEL>  [default: info]
     ///   --version
     ///   --help
     fn parse() -> Self {
         let args: Vec<String> = std::env::args().collect();
         let mut tree = PathBuf::from("models/agent_policy_tree.json");
+        let mut shadow_tree: Option<PathBuf> = None;
         let mut config_dir = PathBuf::from("config/");
         let mut db = PathBuf::from("arbiter.db");
         let mut log_level = "info".to_string();
@@ -55,6 +60,15 @@ impl CliArgs {
                         tree = PathBuf::from(&args[i]);
                     } else {
                         eprintln!("error: --tree requires a value");
+                        process::exit(1);
+                    }
+                }
+                "--shadow-tree" => {
+                    i += 1;
+                    if i < args.len() {
+                        shadow_tree = Some(PathBuf::from(&args[i]));
+                    } else {
+                        eprintln!("error: --shadow-tree requires a value");
                         process::exit(1);
                     }
                 }
@@ -104,6 +118,7 @@ impl CliArgs {
 
         Self {
             tree,
+            shadow_tree,
             config_dir,
             db,
             log_level,
@@ -120,16 +135,20 @@ USAGE:
     arbiter [OPTIONS]
 
 OPTIONS:
-    --tree <PATH>       Path to decision tree JSON
-                        [default: models/agent_policy_tree.json]
-    --config <DIR>      Path to config directory
-                        [default: config/]
-    --db <PATH>         Path to SQLite database
-                        [default: arbiter.db]
-    --log-level <LEVEL> Log level: trace|debug|info|warn|error
-                        [default: info]
-    --version           Print version
-    --help              Print help"
+    --tree <PATH>        Path to decision tree JSON
+                         [default: models/agent_policy_tree.json]
+    --shadow-tree <PATH> Path to a shadow (candidate) decision tree JSON;
+                         evaluated on every route_task but never takes
+                         traffic (logged to decisions.shadow_json)
+                         [default: none — shadow routing disabled]
+    --config <DIR>       Path to config directory
+                         [default: config/]
+    --db <PATH>          Path to SQLite database
+                         [default: arbiter.db]
+    --log-level <LEVEL>  Log level: trace|debug|info|warn|error
+                         [default: info]
+    --version            Print version
+    --help               Print help"
     );
 }
 
@@ -234,6 +253,30 @@ fn main() {
         }
     };
 
+    // Shadow tree (optional). Load failure disables shadow — never fatal (S1).
+    // Plain Arc<Option<..>>, not Arc<RwLock<..>>: no hot reload in Phase 1,
+    // so no lock and no poisoning surface on the hot path.
+    let shadow_tree: Arc<Option<DecisionTree>> = Arc::new(match &args.shadow_tree {
+        None => None,
+        Some(path) => match std::fs::read_to_string(path)
+            .map_err(anyhow::Error::from)
+            .and_then(|json| DecisionTree::from_json(&json).map_err(Into::into))
+        {
+            Ok(t) => {
+                info!(
+                    event = "arbiter.shadow_tree_loaded",
+                    path = %path.display(),
+                    "shadow tree loaded"
+                );
+                Some(t)
+            }
+            Err(e) => {
+                eprintln!("WARNING: shadow tree failed to load: {e:#}. Shadow routing disabled.");
+                None
+            }
+        },
+    });
+
     // Open SQLite database
     let database = match db::Database::open(&args.db) {
         Ok(d) => d,
@@ -326,6 +369,7 @@ fn main() {
         Arc::clone(&config),
         Arc::clone(&database),
         Arc::clone(&tree),
+        shadow_tree,
         Arc::clone(&registry),
         Arc::clone(&metrics),
         shutdown,

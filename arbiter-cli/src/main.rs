@@ -206,6 +206,7 @@ fn bench_route_throughput() -> Result<()> {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -226,6 +227,7 @@ fn bench_route_throughput() -> Result<()> {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -321,6 +323,7 @@ fn bench_route_latency_p99() -> Result<()> {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -394,6 +397,7 @@ fn bench_report_latency_p99() -> Result<()> {
             invariants_passed: 10,
             invariants_failed: 0,
             inference_us: 50,
+            shadow_json: None,
         };
         db.insert_decision(&decision)?;
         db.increment_running_tasks(agent_ids[i % agent_ids.len()])?;
@@ -505,6 +509,7 @@ fn bench_memory_usage() -> Result<()> {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -619,6 +624,7 @@ fn bench_sqlite_size() -> Result<()> {
             invariants_passed: 10,
             invariants_failed: 0,
             inference_us: 50 + (i as i64 % 100),
+            shadow_json: None,
         };
         db.insert_decision(&decision)?;
     }

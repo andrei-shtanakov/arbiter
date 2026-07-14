@@ -75,6 +75,9 @@ pub struct DecisionRecord {
     pub invariants_passed: i32,
     pub invariants_failed: i32,
     pub inference_us: i64,
+    /// Shadow policy decision snapshot (shadow routing P1); NULL when the
+    /// shadow was inactive or degraded. Never part of the MCP response.
+    pub shadow_json: Option<String>,
 }
 
 /// Outcome record for insert into the `outcomes` table.
@@ -185,9 +188,13 @@ impl Database {
         Ok(Self { conn })
     }
 
-    /// Run schema migration to v1. Creates all 5 tables and 7 indices.
+    /// Run schema migrations up to the current version (v2).
     ///
-    /// Idempotent: uses `CREATE TABLE IF NOT EXISTS`.
+    /// v1 creates all 5 tables and 7 indices (idempotent: `CREATE TABLE IF
+    /// NOT EXISTS`). v2 adds the nullable `decisions.shadow_json` column;
+    /// `ALTER TABLE` is not idempotent in SQLite, so it is gated on the
+    /// recorded schema version and applied in one transaction with its
+    /// version bump.
     pub fn migrate(&self) -> Result<()> {
         self.conn
             .execute_batch(SCHEMA_V1)
@@ -202,6 +209,27 @@ impl Database {
             .context("Failed to record schema version")?;
 
         debug!("schema v1 applied");
+
+        let version: i64 = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 1) FROM schema_version",
+                [],
+                |r| r.get(0),
+            )
+            .context("Failed to read schema version")?;
+        if version < 2 {
+            self.conn
+                .execute_batch(
+                    "BEGIN;
+                     ALTER TABLE decisions ADD COLUMN shadow_json TEXT;
+                     INSERT OR IGNORE INTO schema_version (version) VALUES (2);
+                     COMMIT;",
+                )
+                .context("Failed to apply schema v2")?;
+            debug!("schema v2 applied");
+        }
+
         Ok(())
     }
 
@@ -220,10 +248,11 @@ impl Database {
                         confidence, decision_path,
                         fallback_agent, fallback_reason,
                         invariants_json, invariants_passed,
-                        invariants_failed, inference_us
+                        invariants_failed, inference_us,
+                        shadow_json
                     ) VALUES (
                         ?1, ?2, ?3, ?4, ?5, ?6,
-                        ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14
+                        ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15
                     )",
                     params![
                         d.task_id,
@@ -240,6 +269,7 @@ impl Database {
                         d.invariants_passed,
                         d.invariants_failed,
                         d.inference_us,
+                        d.shadow_json,
                     ],
                 )
                 .context("Failed to insert decision")?;
@@ -271,7 +301,8 @@ impl Database {
                     confidence, decision_path,
                     fallback_agent, fallback_reason,
                     invariants_json, invariants_passed,
-                    invariants_failed, inference_us
+                    invariants_failed, inference_us,
+                    shadow_json
              FROM decisions WHERE task_id = ?1
              ORDER BY id DESC LIMIT 1",
         )?;
@@ -293,12 +324,30 @@ impl Database {
                     invariants_passed: row.get(11)?,
                     invariants_failed: row.get(12)?,
                     inference_us: row.get(13)?,
+                    shadow_json: row.get(14)?,
                 })
             })
             .optional()
             .context("Failed to query decision")?;
 
         Ok(result)
+    }
+
+    /// Latest decision's shadow_json for a task (test/eval surface; NULL when
+    /// the shadow was inactive or degraded). Ordered by rowid: same-task
+    /// decisions can share a datetime('now') timestamp.
+    #[allow(dead_code)] // Used by integration tests.
+    pub fn get_decision_shadow_json(&self, task_id: &str) -> Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT shadow_json FROM decisions WHERE task_id = ?1 \
+                 ORDER BY id DESC LIMIT 1",
+                params![task_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .context("Failed to read shadow_json")
+            .map(Option::flatten)
     }
 
     // -----------------------------------------------------------------------
@@ -994,6 +1043,7 @@ mod tests {
             invariants_passed: 10,
             invariants_failed: 0,
             inference_us: 42,
+            shadow_json: None,
         }
     }
 
@@ -1016,6 +1066,70 @@ mod tests {
     }
 
     // -- Schema migration --
+
+    #[test]
+    fn migrate_v2_adds_shadow_json_and_is_idempotent() {
+        let db = setup_db(); // runs migrate() once
+        db.migrate().unwrap(); // second run must not fail (ALTER is version-gated)
+
+        let cols: Vec<String> = db
+            .conn
+            .prepare("SELECT name FROM pragma_table_info('decisions')")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert!(cols.contains(&"shadow_json".to_string()));
+
+        let version: i32 = db
+            .conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+    }
+
+    #[test]
+    fn insert_decision_persists_shadow_json() {
+        let db = setup_db();
+        let mut d = sample_decision();
+        d.task_id = "t-shadow".to_string();
+        d.shadow_json = Some(r#"{"agent":"aider","agrees_with_live":false}"#.to_string());
+        let id = db.insert_decision(&d).unwrap();
+        let stored: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT shadow_json FROM decisions WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(stored.unwrap().contains("aider"));
+    }
+
+    #[test]
+    fn get_decision_shadow_json_distinguishes_null_and_missing() {
+        let db = setup_db();
+
+        // Row with shadow_json set -> helper returns it.
+        let mut with_shadow = sample_decision();
+        with_shadow.task_id = "t-with-shadow".to_string();
+        with_shadow.shadow_json = Some(r#"{"agent":"aider"}"#.to_string());
+        db.insert_decision(&with_shadow).unwrap();
+        let got = db.get_decision_shadow_json("t-with-shadow").unwrap();
+        assert!(got.unwrap().contains("aider"));
+
+        // Row with shadow_json NULL -> None.
+        let without_shadow = sample_decision(); // task-001, shadow_json: None
+        db.insert_decision(&without_shadow).unwrap();
+        assert!(db.get_decision_shadow_json("task-001").unwrap().is_none());
+
+        // Unknown task_id -> None.
+        assert!(db
+            .get_decision_shadow_json("no-such-task")
+            .unwrap()
+            .is_none());
+    }
 
     #[test]
     fn migrate_creates_all_tables() {
@@ -1690,6 +1804,7 @@ mod tests {
             invariants_passed: 8,
             invariants_failed: 2,
             inference_us: 100,
+            shadow_json: None,
         };
 
         let id = db.insert_decision(&decision).unwrap();

@@ -100,6 +100,88 @@ fn apply_benchmark_rerank(
     Ok(())
 }
 
+/// Apply the preferred_agent confidence boost and re-sort (Step 6).
+///
+/// Shared by the live path and the shadow base constructor so the two
+/// cannot drift (shadow routing P1).
+fn apply_preferred_boost(
+    ranked: &mut [(String, PredictionResult)],
+    preferred_agent: &Option<String>,
+) {
+    if let Some(preferred) = preferred_agent {
+        for entry in ranked.iter_mut() {
+            if entry.0 == *preferred {
+                entry.1.confidence = (entry.1.confidence + PREFERRED_AGENT_BOOST).min(1.0);
+                debug!(agent = %preferred, "applied preferred_agent boost +{PREFERRED_AGENT_BOOST}");
+                break;
+            }
+        }
+        // Re-sort after boost
+        ranked.sort_by(|a, b| {
+            b.1.confidence
+                .partial_cmp(&a.1.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+}
+
+/// Shadow decision snapshot persisted into decisions.shadow_json. NOT part of
+/// the frozen Maestro DTO (R3) — SQLite + tracing only.
+#[derive(Debug, serde::Serialize)]
+struct ShadowDecision {
+    agent: String,
+    confidence: f64,
+    tree: &'static str, // "shadow" | "live"
+    bench_weight: f64,
+    live_top1: String,
+    agrees_with_live: bool,
+}
+
+/// Base ranking the shadow re-ranks. Never produced by `round_robin_ranking`
+/// (RR1: its global counter side effect would shift the NEXT live
+/// degraded-mode route — an S1 violation).
+enum ShadowBase {
+    /// Distinct shadow tree: fresh inference over the live feature_vectors,
+    /// preferred boost re-applied by the caller-side constructor (Step 6b-pre).
+    ShadowTree(Vec<(String, PredictionResult)>),
+    /// Weight-only shadow (or degraded live mode): clone of the live
+    /// post-boost ranking, taken BEFORE the live Step 6b mutates it in place.
+    ClonedLive(Vec<(String, PredictionResult)>),
+}
+
+/// Re-rank the shadow base with the shadow bench weight. Returns None on ANY
+/// internal error (S1): shadow must never fail or alter the live route.
+/// Invariants are deliberately NOT replayed (pre-invariant top-1 comparison).
+fn compute_shadow(
+    base: ShadowBase,
+    task_type: &TaskType,
+    db: &Database,
+    shadow_bench_weight: f64,
+    live_top1: &str,
+) -> Option<ShadowDecision> {
+    let (tree_label, mut shadow_ranked) = match base {
+        ShadowBase::ShadowTree(r) => ("shadow", r),
+        ShadowBase::ClonedLive(r) => ("live", r),
+    };
+    if let Err(e) = apply_benchmark_rerank(&mut shadow_ranked, task_type, db, shadow_bench_weight) {
+        warn!(
+            event = "route.shadow_error",
+            error = %e,
+            "shadow bench re-rank failed; shadow degrades to NULL"
+        );
+        return None;
+    }
+    let (agent, pred) = shadow_ranked.first()?;
+    Some(ShadowDecision {
+        agent: agent.clone(),
+        confidence: pred.confidence,
+        tree: tree_label,
+        bench_weight: shadow_bench_weight,
+        live_top1: live_top1.to_string(),
+        agrees_with_live: agent == live_top1,
+    })
+}
+
 /// Result of the route_task operation.
 #[derive(Debug)]
 pub struct RouteResult {
@@ -210,6 +292,9 @@ pub fn execute(
     constraints: &Constraints,
     authority: Option<&arbiter_core::authority::AuthorityPolicy>,
     tree: Option<&DecisionTree>,
+    // Shadow (candidate) tree — evaluated read-only next to the live route
+    // (shadow routing P1); result goes to decisions.shadow_json only.
+    shadow_tree: Option<&DecisionTree>,
     registry: &AgentRegistry,
     db: &Database,
     invariant_config: &InvariantConfig,
@@ -247,7 +332,7 @@ pub fn execute(
             decision_id: None,
             authority: None,
         };
-        result.decision_id = log_decision(db, task_id, task, constraints, &result);
+        result.decision_id = log_decision(db, task_id, task, constraints, &result, None);
         metrics.record_decision(
             result.inference_us as u64,
             result.action == AgentAction::Fallback,
@@ -328,7 +413,7 @@ pub fn execute(
                 decision_id: None,
                 authority: Some(audit),
             };
-            result.decision_id = log_decision(db, task_id, task, constraints, &result);
+            result.decision_id = log_decision(db, task_id, task, constraints, &result, None);
             metrics.record_decision(result.inference_us as u64, false, true);
             return Ok(result);
         }
@@ -361,7 +446,7 @@ pub fn execute(
             decision_id: None,
             authority: authority_audit.clone(),
         };
-        result.decision_id = log_decision(db, task_id, task, constraints, &result);
+        result.decision_id = log_decision(db, task_id, task, constraints, &result, None);
         metrics.record_decision(
             result.inference_us as u64,
             result.action == AgentAction::Fallback,
@@ -399,21 +484,25 @@ pub fn execute(
     };
 
     // Step 6: Apply preferred_agent boost
-    if let Some(ref preferred) = constraints.preferred_agent {
-        for entry in &mut ranked {
-            if entry.0 == *preferred {
-                entry.1.confidence = (entry.1.confidence + PREFERRED_AGENT_BOOST).min(1.0);
-                debug!(agent = %preferred, "applied preferred_agent boost +{PREFERRED_AGENT_BOOST}");
-                break;
-            }
+    apply_preferred_boost(&mut ranked, &constraints.preferred_agent);
+
+    // Step 6b-pre: capture the shadow base (RR1: never via round_robin_ranking
+    // — its global counter side effect would shift the next live degraded
+    // route). Env is read only here, mirroring the ARBITER_BENCH_WEIGHT read
+    // below; compute_shadow and its unit tests stay env-free.
+    let shadow_bench_weight = std::env::var("ARBITER_SHADOW_BENCH_WEIGHT")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok());
+    let shadow_active = shadow_tree.is_some() || shadow_bench_weight.is_some();
+    let shadow_base: Option<ShadowBase> = match (shadow_active, shadow_tree) {
+        (false, _) => None,
+        (true, Some(sdt)) => {
+            let mut sr = evaluate_for_agents(sdt, &feature_vectors);
+            apply_preferred_boost(&mut sr, &constraints.preferred_agent);
+            Some(ShadowBase::ShadowTree(sr))
         }
-        // Re-sort after boost
-        ranked.sort_by(|a, b| {
-            b.1.confidence
-                .partial_cmp(&a.1.confidence)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-    }
+        (true, None) => Some(ShadowBase::ClonedLive(ranked.clone())),
+    };
 
     // Step 6b: Benchmark re-rank (R-07), opt-in via env flag, off by default
     // (weight 0.0 => byte-for-byte identical to pre-R-07 behaviour).
@@ -422,6 +511,28 @@ pub fn execute(
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.0);
     apply_benchmark_rerank(&mut ranked, &task.task_type, db, bench_weight)?;
+
+    // Step 6c: shadow policy evaluation (read-only; never affects the live
+    // route). The comparison point is the pre-invariant live top-1.
+    let shadow: Option<ShadowDecision> = match (shadow_base, ranked.first()) {
+        (Some(base), Some((live_top1, _))) => compute_shadow(
+            base,
+            &task.task_type,
+            db,
+            shadow_bench_weight.unwrap_or(bench_weight),
+            live_top1,
+        ),
+        _ => None,
+    };
+    if let Some(ref s) = shadow {
+        info!(
+            event = "route.shadow",
+            task_id,
+            shadow_agent = %s.agent,
+            agrees = s.agrees_with_live,
+            "shadow decision"
+        );
+    }
 
     // Step 7+8: Run invariant checks with cascade fallback
     let system_ctx = to_system_context(constraints, total_running);
@@ -492,7 +603,8 @@ pub fn execute(
             };
 
             // Step 9: Log decision to SQLite (capture rowid for response metadata)
-            result.decision_id = log_decision(db, task_id, task, constraints, &result);
+            result.decision_id =
+                log_decision(db, task_id, task, constraints, &result, shadow.as_ref());
 
             // Step 10: Increment running_tasks
             db.increment_running_tasks(agent_id)
@@ -565,7 +677,7 @@ pub fn execute(
         authority: authority_audit.clone(),
     };
 
-    result.decision_id = log_decision(db, task_id, task, constraints, &result);
+    result.decision_id = log_decision(db, task_id, task, constraints, &result, None);
 
     metrics.record_decision(
         result.inference_us as u64,
@@ -634,6 +746,7 @@ fn log_decision(
     task: &TaskInput,
     constraints: &Constraints,
     result: &RouteResult,
+    shadow: Option<&ShadowDecision>,
 ) -> Option<i64> {
     let task_json = serde_json::to_string(task).unwrap_or_default();
     let constraints_json = serde_json::to_string(constraints).ok();
@@ -661,6 +774,7 @@ fn log_decision(
         invariants_passed: passed,
         invariants_failed: failed,
         inference_us: result.inference_us,
+        shadow_json: shadow.and_then(|s| serde_json::to_string(s).ok()),
     };
 
     match db.insert_decision(&record) {
@@ -750,6 +864,40 @@ mod tests {
             per_task_truncated: 0,
         })
         .unwrap();
+    }
+
+    #[test]
+    fn compute_shadow_reranks_cloned_base_and_flags_disagreement() {
+        let db = Database::open_in_memory().unwrap();
+        db.migrate().unwrap();
+        seed_bench(&db, "s1", "claude_code", "code-review", 0.90);
+        seed_bench(&db, "s2", "aider", "code-review", 0.20);
+
+        let mk = |conf: f64| PredictionResult {
+            class: 0,
+            confidence: conf,
+            path: vec![],
+        };
+        // Weight-only shadow: base = clone of the live post-boost ranking
+        // (aider leads).
+        let live_post_boost = vec![
+            ("aider".to_string(), mk(0.55)),
+            ("claude_code".to_string(), mk(0.50)),
+        ];
+        let shadow = compute_shadow(
+            ShadowBase::ClonedLive(live_post_boost.clone()),
+            &TaskType::Review,
+            &db,
+            0.15,    // shadow bench weight
+            "aider", // live pre-invariant top-1
+        );
+        let s = shadow.expect("shadow must produce a value");
+        // claude_code: 0.50 + (0.90-0.5)*0.15 = 0.56
+        // aider:       0.55 + (0.20-0.5)*0.15 = 0.505
+        assert_eq!(s.agent, "claude_code");
+        assert!(!s.agrees_with_live);
+        assert_eq!(s.live_top1, "aider");
+        assert_eq!(s.tree, "live");
     }
 
     #[test]
@@ -1149,6 +1297,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1191,6 +1340,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1221,6 +1371,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1248,6 +1399,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1278,6 +1430,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1384,6 +1537,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1464,6 +1618,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1607,6 +1762,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1699,6 +1855,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1786,6 +1943,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1857,6 +2015,7 @@ mod tests {
             &constraints,
             None, /* authority */
             None, // No decision tree
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1921,6 +2080,7 @@ mod tests {
                 &constraints,
                 None, /* authority */
                 None,
+                None, /* shadow_tree */
                 &registry,
                 &db,
                 &invariant_cfg,
@@ -1992,6 +2152,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&DecisionTree::from_json(&test_tree_json()).unwrap()),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -2173,6 +2334,7 @@ mod tests {
             &authority_constraints("implement", "execution"),
             Some(&policy),
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -2215,6 +2377,7 @@ mod tests {
             &authority_constraints("review", "execution"),
             Some(&policy),
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -2249,6 +2412,7 @@ mod tests {
             &empty_constraints(), // no authority_context
             Some(&policy),
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -2276,6 +2440,7 @@ mod tests {
             &empty_constraints(),
             None,
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -2356,6 +2521,7 @@ mod tests {
             &authority_constraints("implement", "execution"),
             Some(&policy),
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
