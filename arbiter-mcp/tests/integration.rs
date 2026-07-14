@@ -258,6 +258,33 @@ fn env_guard() -> std::sync::MutexGuard<'static, ()> {
     ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// RAII env-var setter: restores the previous value on drop, so a panicking
+/// `execute` cannot leak the variable into other tests (unwind-safe cleanup).
+struct EnvVar {
+    key: &'static str,
+    prev: Option<String>,
+}
+
+impl EnvVar {
+    fn set(key: &'static str, value: Option<&str>) -> Self {
+        let prev = std::env::var(key).ok();
+        match value {
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
+        }
+        Self { key, prev }
+    }
+}
+
+impl Drop for EnvVar {
+    fn drop(&mut self) {
+        match &self.prev {
+            Some(v) => std::env::set_var(self.key, v),
+            None => std::env::remove_var(self.key),
+        }
+    }
+}
+
 fn seed_benchmark(db: &Database, agent: &str, bench: &str, score: f64) {
     db.insert_benchmark_run(&BenchmarkRunInput {
         run_id: &format!("{agent}-{bench}"),
@@ -285,12 +312,11 @@ fn route_with_weight(
     task: &TaskInput,
     weight: f64,
 ) -> route_task::RouteResult {
-    if weight > 0.0 {
-        std::env::set_var("ARBITER_BENCH_WEIGHT", weight.to_string());
-    } else {
-        std::env::remove_var("ARBITER_BENCH_WEIGHT");
-    }
-    let r = route_task::execute(
+    let _env = EnvVar::set(
+        "ARBITER_BENCH_WEIGHT",
+        (weight > 0.0).then(|| weight.to_string()).as_deref(),
+    );
+    route_task::execute(
         "it-08",
         task,
         &open_constraints(),
@@ -302,9 +328,7 @@ fn route_with_weight(
         inv,
         &arbiter_mcp::metrics::Metrics::new(),
     )
-    .unwrap();
-    std::env::remove_var("ARBITER_BENCH_WEIGHT");
-    r
+    .unwrap()
 }
 
 /// IT-08: benchmark scores re-rank the Review route, and scoping holds for Docs.
@@ -1863,12 +1887,11 @@ fn route_with_shadow_weight(
     task_id: &str,
     shadow_weight: Option<f64>,
 ) -> route_task::RouteResult {
-    if let Some(w) = shadow_weight {
-        std::env::set_var("ARBITER_SHADOW_BENCH_WEIGHT", w.to_string());
-    } else {
-        std::env::remove_var("ARBITER_SHADOW_BENCH_WEIGHT");
-    }
-    let r = route_task::execute(
+    let _env = EnvVar::set(
+        "ARBITER_SHADOW_BENCH_WEIGHT",
+        shadow_weight.map(|w| w.to_string()).as_deref(),
+    );
+    route_task::execute(
         task_id,
         task,
         &open_constraints(),
@@ -1880,9 +1903,7 @@ fn route_with_shadow_weight(
         inv,
         &arbiter_mcp::metrics::Metrics::new(),
     )
-    .unwrap();
-    std::env::remove_var("ARBITER_SHADOW_BENCH_WEIGHT");
-    r
+    .unwrap()
 }
 
 /// Shadow test 1: an active shadow writes decisions.shadow_json with the six

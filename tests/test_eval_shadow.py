@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from scripts.eval_shadow import report
+from scripts.eval_shadow import EvalInputError, report
 
 # Minimal v2 slice of the arbiter schema: only the columns eval_shadow reads
 # (decisions incl. shadow_json; outcomes for the live-outcome join).
@@ -158,6 +158,23 @@ def test_since_window_filters(db_path: Path) -> None:
     r = report(db_path, since="2027-01-01")
     assert r["total_decisions"] == 0
     assert r["coverage"] == 0.0
+
+
+def test_v1_schema_raises_clear_input_error(tmp_path: Path) -> None:
+    """A schema v1 DB (no shadow_json column) must raise EvalInputError,
+    not a raw sqlite3.OperationalError traceback (CLI exit 2)."""
+    p = tmp_path / "v1.db"
+    conn = sqlite3.connect(p)
+    conn.executescript(SCHEMA.replace(",\n    shadow_json       TEXT", ""))
+    conn.commit()
+    conn.close()
+    with pytest.raises(EvalInputError, match="schema v2"):
+        report(p)
+
+
+def test_missing_db_raises_input_error(tmp_path: Path) -> None:
+    with pytest.raises(EvalInputError, match="not found"):
+        report(tmp_path / "nope.db")
 
 
 def test_non_assign_rows_reported_separately(tmp_path: Path) -> None:

@@ -72,81 +72,89 @@ def report(db_path: Path | str, since: str | None = None) -> dict[str, Any]:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     try:
-        where = "WHERE timestamp >= ?1" if since else ""
-        params = (since,) if since else ()
-        rows = conn.execute(
-            "SELECT task_id, timestamp, task_json, chosen_agent, action, "
-            f"shadow_json FROM decisions {where} ORDER BY id",
-            params,
-        ).fetchall()
-
-        total = len(rows)
-        shadow_rows: list[tuple[sqlite3.Row, dict[str, Any]]] = []
-        for row in rows:
-            if row["shadow_json"] is None:
-                continue
-            shadow = _parse_shadow(row["shadow_json"], row["task_id"])
-            if shadow is not None:
-                shadow_rows.append((row, shadow))
-
-        assign = [(r, s) for r, s in shadow_rows if r["action"] == "assign"]
-        non_assign = [
-            {
-                "task_id": r["task_id"],
-                "task_type": _task_type(r["task_json"]),
-                "live_agent": r["chosen_agent"],
-                "action": r["action"],
-                "shadow": s,
-            }
-            for r, s in shadow_rows
-            if r["action"] != "assign"
-        ]
-
-        agree_count = sum(1 for _, s in assign if s.get("agrees_with_live"))
-        per_tt: dict[str, dict[str, Any]] = {}
-        for row, shadow in assign:
-            tt = per_tt.setdefault(
-                _task_type(row["task_json"]), {"count": 0, "agree": 0}
-            )
-            tt["count"] += 1
-            tt["agree"] += 1 if shadow.get("agrees_with_live") else 0
-        for tt in per_tt.values():
-            tt["agreement_rate"] = _rate(tt["agree"], tt["count"])
-
-        disagreements = [
-            {
-                "task_id": row["task_id"],
-                "task_type": _task_type(row["task_json"]),
-                "live_agent": row["chosen_agent"],
-                "action": row["action"],
-                "shadow_agent": shadow.get("agent"),
-                "shadow_tree": shadow.get("tree"),
-                "bench_weight": shadow.get("bench_weight"),
-                "live_outcome": _live_outcome(
-                    conn, row["task_id"], row["chosen_agent"]
-                ),
-            }
-            for row, shadow in assign
-            if not shadow.get("agrees_with_live")
-        ]
-
-        return {
-            "db": str(path),
-            "since": since,
-            "total_decisions": total,
-            "with_shadow": len(shadow_rows),
-            "coverage": _rate(len(shadow_rows), total),
-            "assign": {
-                "count": len(assign),
-                "agree": agree_count,
-                "agreement_rate": _rate(agree_count, len(assign)),
-                "per_task_type": per_tt,
-            },
-            "non_assign": non_assign,
-            "disagreements": disagreements,
-        }
+        return _report(conn, str(path), since)
+    except sqlite3.OperationalError as exc:
+        # e.g. schema v1 (no decisions.shadow_json) or a non-arbiter DB.
+        raise EvalInputError(
+            f"cannot read {path}: {exc} — is this an arbiter.db on schema v2? "
+            "(the server migrates v1 -> v2 on startup)"
+        ) from exc
     finally:
         conn.close()
+
+
+def _report(
+    conn: sqlite3.Connection, db_label: str, since: str | None
+) -> dict[str, Any]:
+    where = "WHERE timestamp >= ?1" if since else ""
+    params = (since,) if since else ()
+    rows = conn.execute(
+        "SELECT task_id, timestamp, task_json, chosen_agent, action, "
+        f"shadow_json FROM decisions {where} ORDER BY id",
+        params,
+    ).fetchall()
+
+    total = len(rows)
+    shadow_rows: list[tuple[sqlite3.Row, dict[str, Any]]] = []
+    for row in rows:
+        if row["shadow_json"] is None:
+            continue
+        shadow = _parse_shadow(row["shadow_json"], row["task_id"])
+        if shadow is not None:
+            shadow_rows.append((row, shadow))
+
+    assign = [(r, s) for r, s in shadow_rows if r["action"] == "assign"]
+    non_assign = [
+        {
+            "task_id": r["task_id"],
+            "task_type": _task_type(r["task_json"]),
+            "live_agent": r["chosen_agent"],
+            "action": r["action"],
+            "shadow": s,
+        }
+        for r, s in shadow_rows
+        if r["action"] != "assign"
+    ]
+
+    agree_count = sum(1 for _, s in assign if s.get("agrees_with_live"))
+    per_tt: dict[str, dict[str, Any]] = {}
+    for row, shadow in assign:
+        tt = per_tt.setdefault(_task_type(row["task_json"]), {"count": 0, "agree": 0})
+        tt["count"] += 1
+        tt["agree"] += 1 if shadow.get("agrees_with_live") else 0
+    for tt in per_tt.values():
+        tt["agreement_rate"] = _rate(tt["agree"], tt["count"])
+
+    disagreements = [
+        {
+            "task_id": row["task_id"],
+            "task_type": _task_type(row["task_json"]),
+            "live_agent": row["chosen_agent"],
+            "action": row["action"],
+            "shadow_agent": shadow.get("agent"),
+            "shadow_tree": shadow.get("tree"),
+            "bench_weight": shadow.get("bench_weight"),
+            "live_outcome": _live_outcome(conn, row["task_id"], row["chosen_agent"]),
+        }
+        for row, shadow in assign
+        if not shadow.get("agrees_with_live")
+    ]
+
+    return {
+        "db": db_label,
+        "since": since,
+        "total_decisions": total,
+        "with_shadow": len(shadow_rows),
+        "coverage": _rate(len(shadow_rows), total),
+        "assign": {
+            "count": len(assign),
+            "agree": agree_count,
+            "agreement_rate": _rate(agree_count, len(assign)),
+            "per_task_type": per_tt,
+        },
+        "non_assign": non_assign,
+        "disagreements": disagreements,
+    }
 
 
 def print_text(r: dict[str, Any]) -> None:
