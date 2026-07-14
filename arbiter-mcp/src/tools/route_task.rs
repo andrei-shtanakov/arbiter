@@ -661,6 +661,8 @@ fn log_decision(
         invariants_passed: passed,
         invariants_failed: failed,
         inference_us: result.inference_us,
+        // Wired to the shadow policy snapshot in Task 3 (shadow routing P1).
+        shadow_json: None,
     };
 
     match db.insert_decision(&record) {

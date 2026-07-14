@@ -394,6 +394,7 @@ fn bench_report_latency_p99() -> Result<()> {
             invariants_passed: 10,
             invariants_failed: 0,
             inference_us: 50,
+            shadow_json: None,
         };
         db.insert_decision(&decision)?;
         db.increment_running_tasks(agent_ids[i % agent_ids.len()])?;
@@ -619,6 +620,7 @@ fn bench_sqlite_size() -> Result<()> {
             invariants_passed: 10,
             invariants_failed: 0,
             inference_us: 50 + (i as i64 % 100),
+            shadow_json: None,
         };
         db.insert_decision(&decision)?;
     }

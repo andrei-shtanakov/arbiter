@@ -190,6 +190,7 @@ fn sample_decision(task_id: &str) -> DecisionRecord {
         invariants_passed: 10,
         invariants_failed: 0,
         inference_us: 42,
+        shadow_json: None,
     }
 }
 

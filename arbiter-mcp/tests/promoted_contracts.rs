@@ -119,6 +119,7 @@ fn seeded_db(costs: &[f64]) -> Database {
             invariants_passed: 10,
             invariants_failed: 0,
             inference_us: 42,
+            shadow_json: None,
         };
         let decision_id = db.insert_decision(&decision).unwrap();
         let outcome = OutcomeRecord {
