@@ -210,6 +210,9 @@ pub fn execute(
     constraints: &Constraints,
     authority: Option<&arbiter_core::authority::AuthorityPolicy>,
     tree: Option<&DecisionTree>,
+    // Shadow (candidate) tree — evaluated read-only next to the live route
+    // (shadow routing P1). Wired into compute_shadow in Task 3.
+    _shadow_tree: Option<&DecisionTree>,
     registry: &AgentRegistry,
     db: &Database,
     invariant_config: &InvariantConfig,
@@ -1151,6 +1154,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1193,6 +1197,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1223,6 +1228,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1250,6 +1256,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1280,6 +1287,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1386,6 +1394,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1466,6 +1475,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1609,6 +1619,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1701,6 +1712,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1788,6 +1800,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1859,6 +1872,7 @@ mod tests {
             &constraints,
             None, /* authority */
             None, // No decision tree
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -1923,6 +1937,7 @@ mod tests {
                 &constraints,
                 None, /* authority */
                 None,
+                None, /* shadow_tree */
                 &registry,
                 &db,
                 &invariant_cfg,
@@ -1994,6 +2009,7 @@ mod tests {
             &constraints,
             None, /* authority */
             Some(&DecisionTree::from_json(&test_tree_json()).unwrap()),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -2175,6 +2191,7 @@ mod tests {
             &authority_constraints("implement", "execution"),
             Some(&policy),
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -2217,6 +2234,7 @@ mod tests {
             &authority_constraints("review", "execution"),
             Some(&policy),
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -2251,6 +2269,7 @@ mod tests {
             &empty_constraints(), // no authority_context
             Some(&policy),
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -2278,6 +2297,7 @@ mod tests {
             &empty_constraints(),
             None,
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -2358,6 +2378,7 @@ mod tests {
             &authority_constraints("implement", "execution"),
             Some(&policy),
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,

@@ -229,6 +229,9 @@ pub struct McpServer {
     initialized: bool,
     db: Arc<Database>,
     tree: Arc<RwLock<Option<DecisionTree>>>,
+    /// Shadow (candidate) tree, loaded once at startup (shadow routing P1).
+    /// Plain Arc<Option<..>> — no hot reload, no lock on the hot path.
+    shadow_tree: Arc<Option<DecisionTree>>,
     registry: Arc<RwLock<AgentRegistry>>,
     metrics: Arc<Metrics>,
     shutdown: Arc<AtomicBool>,
@@ -236,12 +239,14 @@ pub struct McpServer {
 
 impl McpServer {
     /// Create a new MCP server with the given configuration, database,
-    /// decision tree, agent registry, metrics collector, and shutdown
-    /// flag.
+    /// decision tree, optional shadow tree, agent registry, metrics
+    /// collector, and shutdown flag.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<RwLock<ArbiterConfig>>,
         db: Arc<Database>,
         tree: Arc<RwLock<Option<DecisionTree>>>,
+        shadow_tree: Arc<Option<DecisionTree>>,
         registry: Arc<RwLock<AgentRegistry>>,
         metrics: Arc<Metrics>,
         shutdown: Arc<AtomicBool>,
@@ -251,6 +256,7 @@ impl McpServer {
             initialized: false,
             db,
             tree,
+            shadow_tree,
             registry,
             metrics,
             shutdown,
@@ -638,6 +644,7 @@ impl McpServer {
             &constraints,
             config.authority.as_ref(),
             tree_guard.as_ref(),
+            self.shadow_tree.as_ref().as_ref(),
             &registry,
             &self.db,
             &config.invariants,
@@ -1019,7 +1026,15 @@ mod tests {
         let tree = Arc::new(RwLock::new(tree));
         let config = Arc::new(RwLock::new(config));
         let registry = Arc::new(RwLock::new(registry));
-        McpServer::new(config, db, tree, registry, metrics, shutdown)
+        McpServer::new(
+            config,
+            db,
+            tree,
+            Arc::new(None),
+            registry,
+            metrics,
+            shutdown,
+        )
     }
 
     fn dispatch(server: &mut McpServer, json: &str) -> Option<JsonRpcResponse> {

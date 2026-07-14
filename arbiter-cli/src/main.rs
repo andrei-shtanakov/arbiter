@@ -206,6 +206,7 @@ fn bench_route_throughput() -> Result<()> {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -226,6 +227,7 @@ fn bench_route_throughput() -> Result<()> {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -321,6 +323,7 @@ fn bench_route_latency_p99() -> Result<()> {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,
@@ -506,6 +509,7 @@ fn bench_memory_usage() -> Result<()> {
             &constraints,
             None, /* authority */
             Some(&tree),
+            None, /* shadow_tree */
             &registry,
             &db,
             &invariant_cfg,

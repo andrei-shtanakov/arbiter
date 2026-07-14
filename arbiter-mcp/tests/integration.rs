@@ -287,6 +287,7 @@ fn route_with_weight(
         &open_constraints(),
         None, /* authority */
         Some(tree),
+        None, /* shadow_tree */
         registry,
         db,
         inv,
@@ -444,6 +445,7 @@ fn it_01_happy_path() {
         &constraints,
         None, /* authority */
         Some(&tree),
+        None, /* shadow_tree */
         &registry,
         &db,
         &invariant_cfg,
@@ -593,6 +595,7 @@ fn it_02_fallback_on_scope_conflict() {
         &constraints,
         None, /* authority */
         Some(&tree),
+        None, /* shadow_tree */
         &registry,
         &db,
         &invariant_cfg,
@@ -695,6 +698,7 @@ fn it_03_all_rejected() {
         &constraints,
         None, /* authority */
         Some(&tree),
+        None, /* shadow_tree */
         &registry,
         &db,
         &invariant_cfg,
@@ -793,6 +797,7 @@ fn it_04_cold_start() {
         &constraints,
         None, /* authority */
         Some(&tree),
+        None, /* shadow_tree */
         &registry,
         &db,
         &invariant_cfg,
@@ -1137,6 +1142,7 @@ fn it_07_concurrent_routing_3x() {
                 &constraints,
                 None, /* authority */
                 Some(&tree),
+                None, /* shadow_tree */
                 &registry,
                 &db,
                 &invariant_cfg,
@@ -1207,7 +1213,15 @@ fn mcp_server_handshake_and_tools_list() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     // Step 1: Initialize
     let resp = dispatch(
@@ -1265,7 +1279,15 @@ fn tools_list_includes_report_benchmark() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     let resp = dispatch(
         &mut server,
@@ -1301,7 +1323,15 @@ fn tools_call_report_benchmark_dispatches() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -1355,7 +1385,15 @@ fn initialize_advertises_protocol_version_1_1_0() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     let resp = dispatch(
         &mut server,
@@ -1384,7 +1422,15 @@ fn mcp_protocol_error_handling() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     // Unknown method → -32601
     let resp = dispatch(
@@ -1421,7 +1467,15 @@ fn mcp_route_task_e2e() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     let req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -1487,7 +1541,15 @@ fn mcp_report_and_status_e2e() {
     let tree = Arc::new(RwLock::new(Some(tree)));
     let config = Arc::new(RwLock::new(config));
     let registry = Arc::new(RwLock::new(registry));
-    let mut server = McpServer::new(config, db, tree, registry, metrics, shutdown);
+    let mut server = McpServer::new(
+        config,
+        db,
+        tree,
+        Arc::new(None),
+        registry,
+        metrics,
+        shutdown,
+    );
 
     // Route a task first
     let route_req = serde_json::json!({

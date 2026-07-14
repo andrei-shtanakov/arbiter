@@ -345,7 +345,8 @@ fn authority_live_audit_matches_schema() {
         &task,
         &constraints,
         Some(&policy),
-        None,
+        None, /* tree */
+        None, /* shadow_tree */
         &registry,
         &db,
         &config.invariants,
