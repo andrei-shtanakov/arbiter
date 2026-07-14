@@ -2082,7 +2082,7 @@ fn shadow_does_not_advance_round_robin_in_degraded_mode() {
     let inv = test_invariant_config();
     let task = task_of_type(TaskType::Review);
 
-    let mut route_seq = |on: bool, tag: &str| -> Vec<String> {
+    let route_seq = |on: bool, tag: &str| -> Vec<String> {
         (0..2)
             .map(|i| {
                 db.reset_all_running_tasks().unwrap();
