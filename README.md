@@ -40,11 +40,38 @@ The server reads JSON-RPC 2.0 from stdin and writes responses to stdout. All log
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--tree <PATH>` | `models/agent_policy_tree.json` | Decision tree JSON file |
+| `--shadow-tree <PATH>` | none (disabled) | Shadow (candidate) decision tree — evaluated on every `route_task`, never takes traffic |
 | `--config <DIR>` | `config/` | Config directory (agents.toml, invariants.toml) |
 | `--db <PATH>` | `arbiter.db` | SQLite database path |
 | `--log-level <LEVEL>` | `info` | Log level: trace, debug, info, warn, error |
 
 If the decision tree file is missing or invalid, the server starts in **degraded round-robin mode** and still accepts requests.
+
+### Shadow routing
+
+Every `route_task` call can additionally evaluate a **candidate ("shadow") policy** —
+an alternative tree (`--shadow-tree`) and/or an alternative benchmark re-rank weight
+(`ARBITER_SHADOW_BENCH_WEIGHT`, defaulting to the live `ARBITER_BENCH_WEIGHT` when
+unset) — through the same ranking pipeline. The shadow's top-1 pick is recorded in the
+nullable `decisions.shadow_json` column (schema v2) next to the live decision and
+**never influences the live route**: the MCP response is byte-identical with the
+shadow on or off (modulo timing/rowid metadata), and any shadow-side failure degrades
+to `shadow_json = NULL` plus a warning. A shadow tree that fails to load disables
+shadow routing with a warning — it never prevents startup.
+
+Note: `--shadow-tree` with the live weight at `0.0` is an intentional *pure
+tree-vs-tree comparison* — the shadow bench re-rank is a no-op then, not a bug.
+
+Analyze the accumulated data offline:
+
+```bash
+uv run python scripts/eval_shadow.py --db arbiter.db [--since 2026-07-01] [--json]
+```
+
+The report shows shadow coverage, live/shadow agreement rate (overall and per
+task type), and a disagreement table joined with the live agent's outcomes. It is a
+one-sided counterfactual — it measures the blast radius of a policy switch, not
+shadow quality (the shadow agent's outcome is never observed).
 
 ## Architecture
 
