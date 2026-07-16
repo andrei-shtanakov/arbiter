@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 fn contract_dir() -> PathBuf {
-    // Vendored from Maestro/contracts/observability/ so arbiter CI
+    // Vendored from maestro/contracts/observability/ so arbiter CI
     // is self-contained (the canonical contract lives in the Maestro repo, which
     // is absent from arbiter's isolated CI checkout). Keep in sync when the
     // observability contract changes.
