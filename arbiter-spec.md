@@ -558,7 +558,7 @@ In the MVP: state is managed via the running_tasks count:
 
 **Purpose:** persist per-agent per-benchmark scores from Maestro's external benchmark runs (ATP) into the `benchmark_runs` table, for R-07 (eval-driven routing) to consume as a routing-decision input.
 
-**Request schema:** see `arbiter-mcp/tests/contract/report_benchmark-v1.schema.json` (mirror of `Maestro/contracts/benchmark/`). Required: `payload_version="1.0.0"`, `run_id`, `benchmark_id`, `agent_id`, `ts` (RFC3339), `score`, `score_components`, `duration_seconds`, `per_task`, `per_task_total_count`, `per_task_truncated`.
+**Request schema:** see `arbiter-mcp/tests/contract/report_benchmark-v1.schema.json` (mirror of `maestro/contracts/benchmark/`). Required: `payload_version="1.0.0"`, `run_id`, `benchmark_id`, `agent_id`, `ts` (RFC3339), `score`, `score_components`, `duration_seconds`, `per_task`, `per_task_total_count`, `per_task_truncated`.
 
 **Response:** `{"status": "created" | "duplicate", "run_id": <id>}`. Duplicate via `INSERT ... ON CONFLICT(run_id) DO NOTHING`.
 

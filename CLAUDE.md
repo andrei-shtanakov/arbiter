@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 - **Current task list:** `./TODO.md` — read it at the start of every session
 - **Ecosystem roadmap (strategic):** `../prograph-vault/authored/notes/ecosystem-roadmap.md` — R-01…R-16 across Maestro / arbiter / ATP / spec-runner
 - **Latest weekly status:** `../prograph-vault/authored/notes/status/2026-04-24-status.md`
-- **Sibling projects** (reference only): `../Maestro/`, `../atp-platform/`, `../spec-runner/`, `../proctor/`
+- **Sibling projects** (reference only): `../maestro/`, `../atp-platform/`, `../spec-runner/`, `../proctor/`
 - **Active design docs:** `../prograph-vault/authored/decisions/2026-04-25-r06b-design.md` (R-06b reframing — affects R-07)
 - **R-07 thin slice (in progress):** `./2026-06-13-r07-phase1-arbiter-rerank-plan.md` (source of truth for code) · `./2026-06-13-r07-thin-slice.md` (motivation + review) · `../prograph-vault/authored/notes/status/2026-06-13-r07-phase0-data-recon.md` (data recon outcome)
 
@@ -203,7 +203,7 @@ anyhow = "1"
 
 ### Key Architectural Rules
 
-1. **arbiter-core is a library** — no I/O, no SQLite, no network in domain modules. Pure logic: types, DT inference, invariant checks, feature vector construction. The `catalog` module is pure (env-vars and file paths are injected by the caller), so no exception is needed. **Exception: `obs` module** — cross-project observability emitter is shared infrastructure that lives in core (so any binary can consume it) and is allowed file I/O (file-per-pid JSONL sinks) and env-var reads per the observability contract at `Maestro/contracts/observability/`. It is currently initialized only by `arbiter-mcp` (`main.rs` → `obs::init_logging`); `arbiter-cli` does not wire it up.
+1. **arbiter-core is a library** — no I/O, no SQLite, no network in domain modules. Pure logic: types, DT inference, invariant checks, feature vector construction. The `catalog` module is pure (env-vars and file paths are injected by the caller), so no exception is needed. **Exception: `obs` module** — cross-project observability emitter is shared infrastructure that lives in core (so any binary can consume it) and is allowed file I/O (file-per-pid JSONL sinks) and env-var reads per the observability contract at `maestro/contracts/observability/`. It is currently initialized only by `arbiter-mcp` (`main.rs` → `obs::init_logging`); `arbiter-cli` does not wire it up.
 2. **arbiter-mcp is a binary** — owns I/O (stdio, SQLite), config loading, MCP protocol, tool dispatch. Depends on arbiter-core
 3. **MCP protocol is hand-rolled** — no MCP SDK dependency. Simple JSON-RPC 2.0 over stdin/stdout, one JSON object per line
 4. **Feature vector is 22 floats** — see `arbiter-spec.md` section 4.5 for exact encoding
@@ -385,7 +385,7 @@ When onboarding or starting a new task, read these in order:
 ## Repo scope & boundaries
 
 - **Этот репо:** `arbiter` — git-корень `all_ai_orchestrators/arbiter/`, remote `git@github.com:andrei-shtanakov/arbiter.git`.
-- **Соседи (READ-ONLY reference):** `../atp-platform/`, `../deployer/`, `../dispatcher/`, `../Maestro/`, `../open-prose/`, `../proctor/`, `../prograph/`, `../prograph-vault/`, `../robin-runtime/`, `../robin-toolkit/`, `../spec-runner/`, `../spec-runner-vscode/`, `../steward/` — их код не редактировать.
+- **Соседи (READ-ONLY reference):** `../atp-platform/`, `../deployer/`, `../dispatcher/`, `../maestro/`, `../libretto/`, `../proctor/`, `../prograph/`, `../prograph-vault/`, `../robin-runtime/`, `../robin-toolkit/`, `../spec-runner/`, `../spec-runner-vscode/`, `../steward/` — их код не редактировать.
 - Нужна правка у соседа → **стоп**: запиши handoff в `../prograph-vault/authored/notes/`
   (кросс-проектное) или `../_cowork_output/` (черновик), не трогай его файлы.
 - Кросс-репные контракты — **вендорить пиненой копией внутрь**, не ссылаться наружу.

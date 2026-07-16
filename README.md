@@ -260,7 +260,7 @@ Returns budget overview: total spent, budget limit, remaining amount, and per-ag
 
 ### report_benchmark
 
-**`report_benchmark`** (R-06b M4, since v0.2.0): persists per-agent per-benchmark scores from Maestro's external benchmark runs into the `benchmark_runs` table for use by R-07 (eval-driven routing). Idempotent via `run_id` PRIMARY KEY. See the Maestro-side design doc for the cross-repo contract: https://github.com/andrei-shtanakov/Maestro/blob/master/docs/superpowers/specs/2026-05-23-r06b-m4-arbiter-wiring-design.md
+**`report_benchmark`** (R-06b M4, since v0.2.0): persists per-agent per-benchmark scores from Maestro's external benchmark runs into the `benchmark_runs` table for use by R-07 (eval-driven routing). Idempotent via `run_id` PRIMARY KEY. See the Maestro-side design doc for the cross-repo contract: https://github.com/andrei-shtanakov/maestro/blob/master/docs/superpowers/specs/2026-05-23-r06b-m4-arbiter-wiring-design.md
 
 **Request:**
 
