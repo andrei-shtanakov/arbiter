@@ -22,6 +22,15 @@
 
 ## Активные задачи
 
+### M3-obs: per-request trace binding — ✅ закрыт (2026-07-19)
+
+- [x] `params._meta.traceparent` из maestro#88 биндится на время dispatch:
+  `obs::bind_request_trace` (thread-local + RAII guard), fallback-ветки
+  `on_new_span`/`on_event` берут caller-контекст перед ROOT; отсутствие/
+  мусор — молча текущее поведение. Contract-тест `tests/request_trace.rs`
+  + server-тест dispatch с `_meta`. Handoff-источник:
+  `prograph-vault/authored/notes/2026-07-19-arbiter-meta-traceparent-handoff.md`
+
 ### ADR-ECO-003b: Rust-загрузчик user-config каталога — ✅ закрыт
 
 - [x] `arbiter_core::catalog`: parse (3 плоскости, degrade-with-warning для
