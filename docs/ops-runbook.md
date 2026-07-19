@@ -43,19 +43,26 @@ Returns total spend, remaining budget, and per-agent cost breakdown.
 Returns per-agent state, capabilities, and performance history.
 
 ### Logs
-All logs go to stderr. Use `--log-level debug` for verbose output.
+Logs are structured OTel JSONL, one file per process:
+`$ORCHESTRA_LOG_DIR/arbiter-<pid>.jsonl` (default `./logs/<pipeline_id>/`,
+pipeline id from `ORCHESTRA_PIPELINE_ID` or a generated ULID). Level comes
+from `--log-level` or `ORCHESTRA_LOG_LEVEL`; use `--log-level debug` for
+verbose output. stderr carries only fatal pre-init errors and serves as a
+fallback if log initialization fails.
 
-Key log events:
-- `route_task decision` — every routing decision with agent, confidence, latency
-- `report_outcome recorded` — every outcome with agent and status
-- `config reloaded` — hot reload triggered
-- `tree reloaded` — decision tree reloaded
-- `purged old records` — retention cleanup
+Key log events (the `event` attribute in each JSONL record):
+- `route.decision` — every routing decision with agent, confidence, latency
+- `outcome.recorded` — every outcome with agent and status
+- `arbiter.retention_purged` — retention cleanup on startup
+- `arbiter.running_tasks_reset` — startup crash-recovery of stuck counters
+- `mcp.ready` / `mcp.shutdown_requested` / `mcp.stdin_eof` — server lifecycle
+- hot-reload messages from the file watcher are plain-text bodies (e.g.
+  "decision tree reloaded successfully") without an `event` attribute
 
 ## Troubleshooting
 
 ### Server won't start
-- Check config syntax: look for parse errors in stderr
+- Check config syntax: fatal startup errors (including parse errors) are printed to stderr before logging is initialized
 - Check tree JSON: valid JSON with `n_features`, `n_classes`, `nodes` arrays
 - Check DB permissions: Arbiter needs read/write to the DB path
 
@@ -71,7 +78,7 @@ Key log events:
 - Purge runs on startup; for immediate purge, restart the server
 
 ### Hot reload not working
-- Check stderr for watcher errors
+- Check the JSONL log for watcher errors ("file watcher error" entries)
 - Only `.toml` files in config dir and the exact tree JSON path are watched
 - Invalid config/tree files are rejected (old state preserved)
 
