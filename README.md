@@ -33,7 +33,7 @@ This creates `models/agent_policy_tree.json` from expert rules.
 cargo run --release --bin arbiter-mcp
 ```
 
-The server reads JSON-RPC 2.0 from stdin and writes responses to stdout. Logs are structured OTel JSONL written to a file per process — `$ORCHESTRA_LOG_DIR/arbiter-<pid>.jsonl`, defaulting to `./logs/<pipeline_id>/` (observability v1 contract). stderr is used only for fatal pre-init errors and as a fallback when log initialization fails.
+The server reads JSON-RPC 2.0 from stdin and writes responses to stdout. Logs are structured OTel JSONL written to a file per process — `$ORCHESTRA_LOG_DIR/arbiter-<pid>.jsonl`, default `./logs/<pipeline_id>/arbiter-<pid>.jsonl` (observability v1 contract). stderr additionally carries CLI-argument errors, fatal startup errors, and startup warnings printed via `eprintln!` (config/tree load problems, watcher start failure, retention/reset failures), and becomes the full log sink as a fallback if log initialization fails.
 
 **Options:**
 

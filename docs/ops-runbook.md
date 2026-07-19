@@ -44,11 +44,15 @@ Returns per-agent state, capabilities, and performance history.
 
 ### Logs
 Logs are structured OTel JSONL, one file per process:
-`$ORCHESTRA_LOG_DIR/arbiter-<pid>.jsonl` (default `./logs/<pipeline_id>/`,
-pipeline id from `ORCHESTRA_PIPELINE_ID` or a generated ULID). Level comes
-from `--log-level` or `ORCHESTRA_LOG_LEVEL`; use `--log-level debug` for
-verbose output. stderr carries only fatal pre-init errors and serves as a
-fallback if log initialization fails.
+`$ORCHESTRA_LOG_DIR/arbiter-<pid>.jsonl` (default
+`./logs/<pipeline_id>/arbiter-<pid>.jsonl`, pipeline id from
+`ORCHESTRA_PIPELINE_ID` or a generated ULID). Level comes from
+`--log-level` or `ORCHESTRA_LOG_LEVEL`; use `--log-level debug` for
+verbose output. stderr additionally carries fatal startup errors and
+startup warnings printed via `eprintln!` (config/tree load problems,
+retention purge or running_tasks reset failures, watcher start failure)
+even while JSONL logging is active, and serves as the full log fallback
+if log initialization fails.
 
 Key log events (the `event` attribute in each JSONL record):
 - `route.decision` — every routing decision with agent, confidence, latency
@@ -62,7 +66,7 @@ Key log events (the `event` attribute in each JSONL record):
 ## Troubleshooting
 
 ### Server won't start
-- Check config syntax: fatal startup errors (including parse errors) are printed to stderr before logging is initialized
+- Check config syntax: fatal config errors are printed to stderr and the server exits with code 1
 - Check tree JSON: valid JSON with `n_features`, `n_classes`, `nodes` arrays
 - Check DB permissions: Arbiter needs read/write to the DB path
 
@@ -78,7 +82,7 @@ Key log events (the `event` attribute in each JSONL record):
 - Purge runs on startup; for immediate purge, restart the server
 
 ### Hot reload not working
-- Check the JSONL log for watcher errors ("file watcher error" entries)
+- Watcher start failure is printed to stderr ("file watcher failed to start", hot reload disabled); runtime watcher errors are "file watcher error" warn records in the JSONL log
 - Only `.toml` files in config dir and the exact tree JSON path are watched
 - Invalid config/tree files are rejected (old state preserved)
 
