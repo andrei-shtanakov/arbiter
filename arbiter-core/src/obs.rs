@@ -82,13 +82,16 @@ thread_local! {
         const { RefCell::new(None) };
 }
 
-/// RAII guard returned by [`bind_request_trace`]; clears the per-request
-/// trace override on drop.
-pub struct RequestTraceGuard(());
+/// RAII guard returned by [`bind_request_trace`]; restores the previous
+/// per-request trace override on drop, so nested bindings stack correctly.
+pub struct RequestTraceGuard {
+    prev: Option<(String, Option<String>)>,
+}
 
 impl Drop for RequestTraceGuard {
     fn drop(&mut self) {
-        REQUEST_TRACE.with(|c| *c.borrow_mut() = None);
+        let prev = self.prev.take();
+        REQUEST_TRACE.with(|c| *c.borrow_mut() = prev);
     }
 }
 
@@ -99,8 +102,8 @@ impl Drop for RequestTraceGuard {
 /// carries all-zero ids — callers treat that as "no context supplied".
 pub fn bind_request_trace(traceparent: &str) -> Option<RequestTraceGuard> {
     let (trace_id, parent_span_id) = parse_traceparent(traceparent)?;
-    REQUEST_TRACE.with(|c| *c.borrow_mut() = Some((trace_id, parent_span_id)));
-    Some(RequestTraceGuard(()))
+    let prev = REQUEST_TRACE.with(|c| c.borrow_mut().replace((trace_id, parent_span_id)));
+    Some(RequestTraceGuard { prev })
 }
 
 fn request_trace() -> Option<(String, Option<String>)> {

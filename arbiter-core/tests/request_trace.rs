@@ -63,6 +63,23 @@ fn request_trace_binding_overrides_root_until_dropped() {
         tracing::info!(event = "bound.spanned", "spanned event under request trace");
     }
 
+    // Nested binding: dropping the inner guard restores the OUTER binding,
+    // not the process root.
+    {
+        let _outer =
+            arbiter_core::obs::bind_request_trace(&format!("00-{CALLER_TRACE}-{CALLER_SPAN}-01"))
+                .expect("outer binds");
+        {
+            let inner_trace = "22223333444455556666777788889999";
+            let _inner = arbiter_core::obs::bind_request_trace(&format!(
+                "00-{inner_trace}-{CALLER_SPAN}-01"
+            ))
+            .expect("inner binds");
+            tracing::info!(event = "nested.inner", "under inner binding");
+        }
+        tracing::info!(event = "nested.outer_restored", "after inner drop");
+    }
+
     tracing::info!(event = "unbound.after", "event after guard dropped");
 
     let records = read_records(tmp.path());
@@ -81,6 +98,11 @@ fn request_trace_binding_overrides_root_until_dropped() {
         .expect("span start record present");
     assert_eq!(span_started["TraceId"], CALLER_TRACE);
     assert_eq!(span_started["Attributes"]["parent_span_id"], CALLER_SPAN);
+
+    let inner = find_by_event(&records, "nested.inner");
+    assert_eq!(inner["TraceId"], "22223333444455556666777788889999");
+    let outer_restored = find_by_event(&records, "nested.outer_restored");
+    assert_eq!(outer_restored["TraceId"], CALLER_TRACE);
 
     let after = find_by_event(&records, "unbound.after");
     assert_ne!(after["TraceId"], CALLER_TRACE, "root trace must return");
