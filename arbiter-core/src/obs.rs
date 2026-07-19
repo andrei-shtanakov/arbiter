@@ -72,6 +72,39 @@ thread_local! {
     /// Layer's `on_enter` / `on_exit`; consumed by [`child_env`] to pin the
     /// subprocess's parent span.
     static CURRENT_SPAN_IDS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+
+    /// Per-request trace override (M3-obs): while a request handler holds a
+    /// [`RequestTraceGuard`], root-level spans and events on this thread
+    /// inherit the caller's (trace_id, parent_span_id) instead of [`ROOT`].
+    /// Thread-local is exact for the sequential stdio server; a concurrent
+    /// server would need to carry the guard in per-task context instead.
+    static REQUEST_TRACE: RefCell<Option<(String, Option<String>)>> =
+        const { RefCell::new(None) };
+}
+
+/// RAII guard returned by [`bind_request_trace`]; clears the per-request
+/// trace override on drop.
+pub struct RequestTraceGuard(());
+
+impl Drop for RequestTraceGuard {
+    fn drop(&mut self) {
+        REQUEST_TRACE.with(|c| *c.borrow_mut() = None);
+    }
+}
+
+/// Bind a caller-supplied W3C `traceparent` as this thread's trace context
+/// until the returned guard is dropped.
+///
+/// Returns `None` (and binds nothing) when `traceparent` is malformed or
+/// carries all-zero ids — callers treat that as "no context supplied".
+pub fn bind_request_trace(traceparent: &str) -> Option<RequestTraceGuard> {
+    let (trace_id, parent_span_id) = parse_traceparent(traceparent)?;
+    REQUEST_TRACE.with(|c| *c.borrow_mut() = Some((trace_id, parent_span_id)));
+    Some(RequestTraceGuard(()))
+}
+
+fn request_trace() -> Option<(String, Option<String>)> {
+    REQUEST_TRACE.with(|c| c.borrow().clone())
 }
 
 /// Initialise the observability emitter for this process.
@@ -213,7 +246,10 @@ where
 
         let (trace_id, parent_span_id) = match &parent_data {
             Some(pd) => (pd.trace_id.clone(), Some(pd.span_id.clone())),
-            None => (root.trace_id.clone(), root.incoming_parent_span_id.clone()),
+            None => match request_trace() {
+                Some((t, p)) => (t, p),
+                None => (root.trace_id.clone(), root.incoming_parent_span_id.clone()),
+            },
         };
         let pipeline_id = parent_data
             .as_ref()
@@ -326,13 +362,19 @@ where
                 sd.pipeline_id,
                 sd.attrs,
             ),
-            None => (
-                root.trace_id.clone(),
-                random_span_id(),
-                root.incoming_parent_span_id.clone(),
-                root.pipeline_id.clone(),
-                Map::new(),
-            ),
+            None => {
+                let (trace_id, parent_span_id) = match request_trace() {
+                    Some((t, p)) => (t, p),
+                    None => (root.trace_id.clone(), root.incoming_parent_span_id.clone()),
+                };
+                (
+                    trace_id,
+                    random_span_id(),
+                    parent_span_id,
+                    root.pipeline_id.clone(),
+                    Map::new(),
+                )
+            }
         };
 
         let mut visitor = AttrVisitor::default();
