@@ -8,7 +8,7 @@ through the contractual MCP path (ATP -> arbiter `report_benchmark`), so the
 Usage::
 
     uv run python scripts/ingest_benchmark_payloads.py \
-        --payloads ../atp-platform/_cowork_output/r07-pipecheck/sweep-2026-06-21 \
+        --payloads ../atp-platform/_cowork_output/r07-pipecheck/sweep-2026-06-21  (gov:allow-cowork) \
         --db arbiter.db
 
 Idempotent: re-running reports each row as "duplicate" (run_id PRIMARY KEY).

@@ -471,6 +471,17 @@ impl McpServer {
             }
         };
 
+        // M3-obs: Maestro sends the caller's W3C trace context in the
+        // MCP-sanctioned params._meta slot (maestro#88). Bind it for the
+        // duration of this dispatch so route.decision / outcome.recorded /
+        // benchmark records correlate by TraceId. Absent or malformed
+        // traceparent silently keeps the process-root context.
+        let _trace_guard = params
+            .get("_meta")
+            .and_then(|m| m.get("traceparent"))
+            .and_then(|v| v.as_str())
+            .and_then(arbiter_core::obs::bind_request_trace);
+
         let tool_name = params.get("name").and_then(|v| v.as_str()).unwrap_or("");
 
         match tool_name {
@@ -1131,6 +1142,26 @@ mod tests {
         let err = resp.error.unwrap();
         assert_eq!(err.code, -32601);
         assert!(err.message.contains("nonexistent"));
+    }
+
+    #[test]
+    fn tools_call_with_meta_traceparent_dispatches_ok() {
+        // M3-obs: params._meta.traceparent must bind (valid) or be ignored
+        // (malformed) — never break dispatch.
+        let (db, tree, config) = setup_server();
+        let mut server = make_server(db, Some(tree), config);
+        for meta in [
+            r#"{"traceparent":"00-aaaabbbbccccddddeeeeffff00001111-1234abcd5678ef90-01"}"#,
+            r#"{"traceparent":"garbage"}"#,
+            r#"{}"#,
+        ] {
+            let json = format!(
+                r#"{{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{{"name":"get_metrics","arguments":{{}},"_meta":{meta}}}}}"#
+            );
+            let resp = dispatch(&mut server, &json).unwrap();
+            assert!(resp.error.is_none(), "_meta={meta} must not break dispatch");
+            assert!(resp.result.is_some());
+        }
     }
 
     #[test]
