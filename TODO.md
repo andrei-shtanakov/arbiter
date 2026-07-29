@@ -45,7 +45,7 @@
 клампованная дельта меняет исход только на почти-равных кандидатах и **не** переворачивает
 доминантный (1.0) лист дерева.
 
-- [ ] Crossover-гейт (task-dependence, а не global bias) на бенчмарке №2 @owner:andrei @blocked_by:atp-platform#benchmark-2 @trigger:"второй task_type с rank_score в benchmark_runs"
+- [ ] Crossover-гейт (task-dependence, а не global bias) на бенчмарке №2 @owner:andrei @blocked_by:atp-platform#second-task-type-sweep @trigger:"второй task_type с rank_score в benchmark_runs"
   - Один бенчмарк доказал *механизм* (проводка + магнитуда сигнала), не направление
 - [ ] Развилка по силе связи: на реальном ре-свипе Δ`rank_score` ≈ 0.08 при разумном весе ≈ 0.15 не переворачивает доминантный лист → выбрать (а) более сильную связь `rank_score` с confidence или (б) переобучение дерева на мягкие листья @owner:andrei @blocked_by:arbiter#crossover-gate
 
@@ -57,7 +57,7 @@
 - [x] **Maestro R-05 contract-level** — 4 subprocess-теста (`f1f7d26`)
 - [x] **RD-006 M4 (Maestro)** — `authority_context` едет в `constraints` при вызове `route_task` (`maestro/coordination/routing.py`)
 - [x] **RD-006 M2 (steward)** — `profiles/authority.yaml` как SSOT; в arbiter вендорнута пиненая копия (`0cb27c8`, #52)
-- [ ] **Данные для R-07 №2 и A/B-вью** — прогон второго task_type тремя агентами @owner:atp @blocked_by:atp-platform#benchmark-2
+- [ ] **Данные для R-07 №2 и A/B-вью** — прогон второго task_type тремя агентами @owner:atp @blocked_by:atp-platform#second-task-type-sweep
 
 Пункты про TTL/retention и GIN-индекс для `benchmark_runs` относятся к **Maestro-side**
 таблице и живут в их `TODO.md`; наша SQLite-таблица чистится общим 90-дневным retention.
