@@ -1,2 +1,7 @@
 # kb-* skills installed by prograph-vault/authored/skills/install-skills.sh
 kb-*/
+kb-load/
+kb-save/
+kb-search/
+kb-session/
+repo-inbox/
