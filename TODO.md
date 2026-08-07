@@ -23,20 +23,20 @@
 
 ### Shadow routing — Phase 2
 
-- [ ] Решить по накопленным shadow-данным, нужен ли Phase 2 @owner:andrei @trigger:"eval_shadow.py на накопленном shadow_json показывает, что петля используется" — кандидаты (все отложены сознательно): hot-reload shadow-дерева через `watcher.rs`, `shadow_match_rate` в `get_metrics`, obs-контрактное событие для shadow-решений, несколько одновременных кандидат-политик, canary-graduation победившей
+- [ ] Решить по накопленным shadow-данным, нужен ли Phase 2 @owner:github:andrei-shtanakov @trigger:"eval_shadow.py на накопленном shadow_json показывает, что петля используется" — кандидаты (все отложены сознательно): hot-reload shadow-дерева через `watcher.rs`, `shadow_match_rate` в `get_metrics`, obs-контрактное событие для shadow-решений, несколько одновременных кандидат-политик, canary-graduation победившей
   - Phase 1 закрыт: `09b7b88` (#53) — `shadow_json` в `decisions`, offline `eval_shadow.py`
   - Источник списка: `20260714shadowroutingphase1plan.md` §«Phase 2 candidates»
   - Гоча при ручной проверке: сырой `route_task` без authority-контекста ведёт себя иначе, чем вызов из Maestro
 
 ### ADR-ECO-003a: жизненный цикл модели — остался один пункт arbiter
 
-- [ ] A/B-вью над `benchmark_runs`: «модель A vs B на suite T» как вход для человеческого гейта флипа `routable` @owner:andrei @blocked_by:atp-platform#golden-suite-ab @trigger:"два сопоставимых rank_score на одном golden suite_id"
+- [ ] A/B-вью над `benchmark_runs`: «модель A vs B на suite T» как вход для человеческого гейта флипа `routable` @owner:github:andrei-shtanakov @blocked_by:atp-platform#golden-suite-ab @trigger:"два сопоставимых rank_score на одном golden suite_id"
   - Два других пункта arbiter из ADR закрыты: мёртвые ключи → `retired` (`6ee2f39`, #32), гейт routable-PR на benchmark-эвиденс (`6a1fbb2`, #41)
   - ADR-ECO-003a статус — **Proposed** (не ратифицирован); `agent_id` не автобампится (D1)
 
 ### ADR-ECO-003b: каталог в рантайме (ADR ратифицирован 2026-07-06)
 
-- [ ] Подключить `arbiter_core::catalog` к `arbiter-mcp` @owner:andrei — загрузчик user-config каталога сейчас поднят только в `arbiter-cli`; сам сервер по-прежнему читает вендоренный `config/agents.toml`, то есть шипнутый бинарник не видит `$ATP_CATALOG`/XDG
+- [ ] Подключить `arbiter_core::catalog` к `arbiter-mcp` @owner:github:andrei-shtanakov — загрузчик user-config каталога сейчас поднят только в `arbiter-cli`; сам сервер по-прежнему читает вендоренный `config/agents.toml`, то есть шипнутый бинарник не видит `$ATP_CATALOG`/XDG
 - [ ] Общий conformance-тест на фикстурах каталога для трёх загрузчиков (Maestro / ATP / arbiter-Rust) @owner:devtools — со стороны arbiter нужны Rust-фикстуры и участие в общем наборе
 
 ### R-07: benchmark-aware routing — открытые хвосты
@@ -45,9 +45,9 @@
 клампованная дельта меняет исход только на почти-равных кандидатах и **не** переворачивает
 доминантный (1.0) лист дерева.
 
-- [ ] Crossover-гейт (task-dependence, а не global bias) на бенчмарке №2 @owner:andrei @blocked_by:atp-platform#second-task-type-sweep @trigger:"второй task_type с rank_score в benchmark_runs"
+- [ ] Crossover-гейт (task-dependence, а не global bias) на бенчмарке №2 @owner:github:andrei-shtanakov @blocked_by:atp-platform#second-task-type-sweep @trigger:"второй task_type с rank_score в benchmark_runs"
   - Один бенчмарк доказал *механизм* (проводка + магнитуда сигнала), не направление
-- [ ] Развилка по силе связи: на реальном ре-свипе Δ`rank_score` ≈ 0.08 при разумном весе ≈ 0.15 не переворачивает доминантный лист → выбрать (а) более сильную связь `rank_score` с confidence или (б) переобучение дерева на мягкие листья @owner:andrei @blocked_by:arbiter#crossover-gate
+- [ ] Развилка по силе связи: на реальном ре-свипе Δ`rank_score` ≈ 0.08 при разумном весе ≈ 0.15 не переворачивает доминантный лист → выбрать (а) более сильную связь `rank_score` с confidence или (б) переобучение дерева на мягкие листья @owner:github:andrei-shtanakov @blocked_by:arbiter#crossover-gate
 
 ---
 
