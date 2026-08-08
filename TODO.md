@@ -11,10 +11,14 @@
 - Пункты уровня команды. Микрошаги реализации живут в `docs/plans/` и файлах планов, сюда не переносятся.
 - Синтаксис чекбоксов `- [ ]` / `- [x]` обязателен — это машинно-читаемый маркер «осталось сделать».
 - После выполнения — `[x]` + хеш коммита, затем пункт переезжает в «Закрыто».
-- Опциональные инлайн-теги в хвосте пункта (формат — plan-fields v2):
-  `@owner:<principal>`, `@blocked_by:<repo>#<slug>`, `@trigger:"<проверяемое условие>"`.
+- Опциональные инлайн-теги в хвосте строки чекбокса (формат — plan-fields v2):
+  `@owner:<principal>`, `@blocked_by:<reference>`,
+  `@trigger:"<проверяемое условие>"`, `@id:<node-id>`.
   Канонический principal: `github:<login>`, `github-team:<org>/<team>`,
   `repo:<manifest-key>` или `TBD`; bare handle/role — только legacy-синтаксис.
+  Каноническая ссылка блокера: `todo://<repo>/<id>`; `<repo>#<slug>` —
+  переходный legacy-синтаксис. `node-id` соответствует
+  `[a-z0-9][a-z0-9._-]{0,63}` и уникален внутри репозитория.
   Отсутствие тега означает «неизвестно» — придумывать триггер там, где его нет, не надо.
 - **Контрактная заморозка**: DTO для Maestro (`861534e`) заморожен. Любое изменение API,
   описанного в E2E smoke test, требует согласования с Maestro и bump версии MCP API.
@@ -25,21 +29,21 @@
 
 ### Shadow routing — Phase 2
 
-- [ ] Решить по накопленным shadow-данным, нужен ли Phase 2 @owner:github:andrei-shtanakov @trigger:"eval_shadow.py на накопленном shadow_json показывает, что петля используется" — кандидаты (все отложены сознательно): hot-reload shadow-дерева через `watcher.rs`, `shadow_match_rate` в `get_metrics`, obs-контрактное событие для shadow-решений, несколько одновременных кандидат-политик, canary-graduation победившей
+- [ ] Решить по накопленным shadow-данным, нужен ли Phase 2 @owner:github:andrei-shtanakov @trigger:"eval_shadow.py на накопленном shadow_json показывает, что петля используется" @id:shadow-phase-2-decision — кандидаты (все отложены сознательно): hot-reload shadow-дерева через `watcher.rs`, `shadow_match_rate` в `get_metrics`, obs-контрактное событие для shadow-решений, несколько одновременных кандидат-политик, canary-graduation победившей
   - Phase 1 закрыт: `09b7b88` (#53) — `shadow_json` в `decisions`, offline `eval_shadow.py`
   - Источник списка: `20260714shadowroutingphase1plan.md` §«Phase 2 candidates»
   - Гоча при ручной проверке: сырой `route_task` без authority-контекста ведёт себя иначе, чем вызов из Maestro
 
 ### ADR-ECO-003a: жизненный цикл модели — остался один пункт arbiter
 
-- [ ] A/B-вью над `benchmark_runs`: «модель A vs B на suite T» как вход для человеческого гейта флипа `routable` @owner:github:andrei-shtanakov @blocked_by:atp-platform#golden-suite-ab @trigger:"два сопоставимых rank_score на одном golden suite_id"
+- [ ] A/B-вью над `benchmark_runs`: «модель A vs B на suite T» как вход для человеческого гейта флипа `routable` @owner:github:andrei-shtanakov @blocked_by:atp-platform#golden-suite-ab @trigger:"два сопоставимых rank_score на одном golden suite_id" @id:benchmark-ab-view
   - Два других пункта arbiter из ADR закрыты: мёртвые ключи → `retired` (`6ee2f39`, #32), гейт routable-PR на benchmark-эвиденс (`6a1fbb2`, #41)
   - ADR-ECO-003a статус — **Proposed** (не ратифицирован); `agent_id` не автобампится (D1)
 
 ### ADR-ECO-003b: каталог в рантайме (ADR ратифицирован 2026-07-06)
 
-- [ ] Подключить `arbiter_core::catalog` к `arbiter-mcp` @owner:github:andrei-shtanakov — загрузчик user-config каталога сейчас поднят только в `arbiter-cli`; сам сервер по-прежнему читает вендоренный `config/agents.toml`, то есть шипнутый бинарник не видит `$ATP_CATALOG`/XDG
-- [ ] Общий conformance-тест на фикстурах каталога для трёх загрузчиков (Maestro / ATP / arbiter-Rust) @owner:devtools — со стороны arbiter нужны Rust-фикстуры и участие в общем наборе
+- [ ] Подключить `arbiter_core::catalog` к `arbiter-mcp` @owner:github:andrei-shtanakov @id:arbiter-mcp-catalog-loader — загрузчик user-config каталога сейчас поднят только в `arbiter-cli`; сам сервер по-прежнему читает вендоренный `config/agents.toml`, то есть шипнутый бинарник не видит `$ATP_CATALOG`/XDG
+- [ ] Общий conformance-тест на фикстурах каталога для трёх загрузчиков (Maestro / ATP / arbiter-Rust) @owner:repo:devtools @id:catalog-conformance-fixtures — со стороны arbiter нужны Rust-фикстуры и участие в общем наборе
 
 ### R-07: benchmark-aware routing — открытые хвосты
 
@@ -47,9 +51,9 @@
 клампованная дельта меняет исход только на почти-равных кандидатах и **не** переворачивает
 доминантный (1.0) лист дерева.
 
-- [ ] Crossover-гейт (task-dependence, а не global bias) на бенчмарке №2 @owner:github:andrei-shtanakov @blocked_by:atp-platform#second-task-type-sweep @trigger:"второй task_type с rank_score в benchmark_runs"
+- [ ] Crossover-гейт (task-dependence, а не global bias) на бенчмарке №2 @owner:github:andrei-shtanakov @blocked_by:atp-platform#second-task-type-sweep @trigger:"второй task_type с rank_score в benchmark_runs" @id:r-07-crossover-gate
   - Один бенчмарк доказал *механизм* (проводка + магнитуда сигнала), не направление
-- [ ] Развилка по силе связи: на реальном ре-свипе Δ`rank_score` ≈ 0.08 при разумном весе ≈ 0.15 не переворачивает доминантный лист → выбрать (а) более сильную связь `rank_score` с confidence или (б) переобучение дерева на мягкие листья @owner:github:andrei-shtanakov @blocked_by:arbiter#crossover-gate
+- [ ] Развилка по силе связи: на реальном ре-свипе Δ`rank_score` ≈ 0.08 при разумном весе ≈ 0.15 не переворачивает доминантный лист → выбрать (а) более сильную связь `rank_score` с confidence или (б) переобучение дерева на мягкие листья @owner:github:andrei-shtanakov @blocked_by:todo://arbiter/r-07-crossover-gate @id:r-07-link-strength-decision
 
 ---
 
@@ -59,7 +63,7 @@
 - [x] **Maestro R-05 contract-level** — 4 subprocess-теста (`f1f7d26`)
 - [x] **RD-006 M4 (Maestro)** — `authority_context` едет в `constraints` при вызове `route_task` (`maestro/coordination/routing.py`)
 - [x] **RD-006 M2 (steward)** — `profiles/authority.yaml` как SSOT; в arbiter вендорнута пиненая копия (`0cb27c8`, #52)
-- [ ] **Данные для R-07 №2 и A/B-вью** — прогон второго task_type тремя агентами @owner:atp @blocked_by:atp-platform#second-task-type-sweep
+- [ ] **Данные для R-07 №2 и A/B-вью** — прогон второго task_type тремя агентами @owner:repo:atp-platform @blocked_by:atp-platform#second-task-type-sweep @id:r-07-second-task-type-data
 
 Пункты про TTL/retention и GIN-индекс для `benchmark_runs` относятся к **Maestro-side**
 таблице и живут в их `TODO.md`; наша SQLite-таблица чистится общим 90-дневным retention.
