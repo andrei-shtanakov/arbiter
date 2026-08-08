@@ -36,8 +36,10 @@
 
 ### ADR-ECO-003a: жизненный цикл модели — остался один пункт arbiter
 
-- [ ] A/B-вью над `benchmark_runs`: «модель A vs B на suite T» как вход для человеческого гейта флипа `routable` @owner:github:andrei-shtanakov @blocked_by:atp-platform#golden-suite-ab @trigger:"два сопоставимых rank_score на одном golden suite_id" @id:benchmark-ab-view
+- [ ] A/B-вью над `benchmark_runs`: «модель A vs B на suite T» как вход для человеческого гейта флипа `routable` @owner:github:andrei-shtanakov @trigger:"два сопоставимых rank_score на одном golden suite_id" @id:benchmark-ab-view
   - Два других пункта arbiter из ADR закрыты: мёртвые ключи → `retired` (`6ee2f39`, #32), гейт routable-PR на benchmark-эвиденс (`6a1fbb2`, #41)
+  - `atp-platform#golden-suite-ab` снят как blocker: такого принятого узла/issue у ATP
+    нет; готовность полностью задаёт измеримый trigger выше
   - ADR-ECO-003a статус — **Proposed** (не ратифицирован); `agent_id` не автобампится (D1)
 
 ### ADR-ECO-003b: каталог в рантайме (ADR ратифицирован 2026-07-06)
