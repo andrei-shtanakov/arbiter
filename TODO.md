@@ -34,15 +34,6 @@
   - Источник списка: `20260714shadowroutingphase1plan.md` §«Phase 2 candidates»
   - Гоча при ручной проверке: сырой `route_task` без authority-контекста ведёт себя иначе, чем вызов из Maestro
 
-### ADR-ECO-003a: жизненный цикл модели — остался один пункт arbiter
-
-- [ ] A/B-вью над `benchmark_runs`: «модель A vs B на suite T» как вход для человеческого гейта флипа `routable` @owner:github:andrei-shtanakov @trigger:"два сопоставимых rank_score на одном golden suite_id" @id:benchmark-ab-view
-  - Триггер сработал 2026-08-16: `req-extraction` — второй суит с сопоставимыми `rank_score` (три агента), см. `docs/2026-08-16-r07-crossover-gate-analysis.md`
-  - Два других пункта arbiter из ADR закрыты: мёртвые ключи → `retired` (`6ee2f39`, #32), гейт routable-PR на benchmark-эвиденс (`6a1fbb2`, #41)
-  - `atp-platform#golden-suite-ab` снят как blocker: такого принятого узла/issue у ATP
-    нет; готовность полностью задаёт измеримый trigger выше
-  - ADR-ECO-003a статус — **Proposed** (не ратифицирован); `agent_id` не автобампится (D1)
-
 ### ADR-ECO-003b: каталог в рантайме (ADR ратифицирован 2026-07-06)
 
 - [ ] Подключить `arbiter_core::catalog` к `arbiter-mcp` @owner:github:andrei-shtanakov @id:arbiter-mcp-catalog-loader — загрузчик user-config каталога сейчас поднят только в `arbiter-cli`; сам сервер по-прежнему читает вендоренный `config/agents.toml`, то есть шипнутый бинарник не видит `$ATP_CATALOG`/XDG
@@ -77,6 +68,7 @@
 
 Хронологически, свежее сверху. Подробности — в PR и docs/.
 
+- **A/B-вью над `benchmark_runs`** (#70, 2026-08-16): подкоманда `ab` в `scripts/check_routable_gate.py` — «агент A vs B на бенчмарке T» для человеческого гейта флипа `routable` (вью, не гейт). Эффективные скоры (семантика `get_benchmark_score`, последний прогон `ts DESC, run_id DESC`), по-задачный дифф по пересечению `task_index` (точное целочисленное сравнение pass rate), legacy/`runs_graded=0` → ungraded, `INCOMPLETE COMPARISON` при разных наборах/truncated. Ограничение v1: suite identity в `benchmark_runs` не хранится — печатается в NOTE. **Все три arbiter-пункта ADR-ECO-003a закрыты** (мёртвые ключи `6ee2f39` #32, routable-гейт `6a1fbb2` #41, вью #70); статус ADR — Proposed, `agent_id` не автобампится (D1); `atp-platform#golden-suite-ab` был снят как blocker ранее
 - **R-07 crossover-гейт** (2026-08-16) — закрыт анализом: `docs/2026-08-16-r07-crossover-gate-analysis.md`. Бенчмарк №2 (`req-extraction`, 3 прогона atp-platform) показал: сигнал `rank_score` task-зависим (Δ 0.209 на `code-review` не переносится, ничья 1.0 на `req-extraction`), global bias не утекает, re-rank на ничьей — честный no-op. Оговорка: суит сатурирован, сильная форма crossover ненаблюдаема — контекст уехал в `r-07-link-strength-decision`
 
 - **Governance-гейт и обвязка CI** (07-16…07-19): governance gate в required checks (`06c8cf1`, #57), обновление путей Maestro (`ab17ad2`, #55), CODEOWNERS (`9643b90`), bump `mcp` 1.27.0 → 1.28.1 (`694f5fe`, #56)

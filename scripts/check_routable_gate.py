@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Routable-flip benchmark-evidence gate (ADR-ECO-003a D4).
 
-Two modes:
+Three modes:
 - ``gate``:   diff base vs head catalog; enforce evidence rules A/B
   (CI-level, declarative — no DB access).
 - ``verify``: check declared evidence against ``benchmark_runs`` rows in
   ``arbiter.db`` (local data-gate).
+- ``ab``:     A/B view "agent A vs B on benchmark T" over ``benchmark_runs``
+  (input for the human routable-flip gate; a view, not a gate — always
+  exit 0 on success). v1 limitation: ``benchmark_runs`` stores no suite
+  identity (version/config digest), so the view assumes both agents ran
+  the same suite and says so in its output.
 
 Stdlib only. Design: docs/2026-07-05-routable-gate-design.md.
 Score semantics mirror ``get_benchmark_score``
@@ -308,6 +313,188 @@ def _verify_one(
     return True
 
 
+# ---------------------------------------------------------------------------
+# ab mode: A/B view over benchmark_runs (TODO @id:benchmark-ab-view)
+# ---------------------------------------------------------------------------
+
+# Строка истории прогона и её курсор в SQL держатся согласованными с
+# runtime-выбором «последнего» прогона: ORDER BY ts DESC, run_id DESC
+# (то же правило, что в _verify_one и db.rs::get_benchmark_score + tie-break).
+_RUNS_SQL = (
+    "SELECT run_id, ts, score, score_components, per_task, per_task_truncated"
+    " FROM benchmark_runs WHERE agent_id = ? AND benchmark_id = ?"
+    " ORDER BY ts DESC, run_id DESC"
+)
+
+
+def _agent_runs(
+    conn: sqlite3.Connection, aid: str, benchmark: str
+) -> list[tuple[Any, ...]]:
+    rows = conn.execute(_RUNS_SQL, (aid, benchmark)).fetchall()
+    if not rows:
+        raise GateInputError(f"no benchmark_runs rows for ({aid}, {benchmark})")
+    return rows
+
+
+def _parse_per_task(
+    run_id: str, per_task_json: str
+) -> dict[int, tuple[int, int] | None]:
+    """per_task JSON -> {task_index: (run_pass_count, runs_graded) | None}.
+
+    Ingest (report_benchmark) guarantees only that per_task is a JSON
+    array — entries are stored as-is, unvalidated — so a non-array or
+    unparseable per_task here is corrupted data (exit-2 class, mirroring
+    the ts rule in _verify_one). Pass counts are not part of the v1
+    contract at all (WireTaskResult requires only task_index +
+    duration_seconds); run_pass_count/runs_graded are an extension newer
+    ATP payloads carry. Entries without them (real 2026-06/07 rows) are
+    therefore a legitimate shape, mapped to None (= ungraded); a count
+    that is present but not an integer is still treated as corrupted.
+    """
+
+    def _int(value: Any) -> int:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        raise GateInputError(
+            f"corrupted data: run {run_id!r} has non-integer per_task counts"
+        )
+
+    try:
+        parsed = json.loads(per_task_json)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise GateInputError(
+            f"corrupted data: run {run_id!r} has unreadable per_task JSON"
+        ) from exc
+    if not isinstance(parsed, list):
+        raise GateInputError(
+            f"corrupted data: run {run_id!r} per_task is not a JSON array"
+        )
+    result: dict[int, tuple[int, int] | None] = {}
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            raise GateInputError(
+                f"corrupted data: run {run_id!r} per_task entry is not an object"
+            )
+        index = _int(entry.get("task_index"))
+        if entry.get("run_pass_count") is None and entry.get("runs_graded") is None:
+            result[index] = None
+            continue
+        result[index] = (
+            _int(entry.get("run_pass_count")),
+            _int(entry.get("runs_graded")),
+        )
+    return result
+
+
+def _print_task_diff(
+    tasks_a: dict[int, tuple[int, int] | None],
+    tasks_b: dict[int, tuple[int, int] | None],
+) -> None:
+    """Per-task diff over the intersection of task indexes.
+
+    Divergence rule: exact integer cross-multiplication of the normalized
+    pass rates (pass_a * graded_b vs pass_b * graded_a) — no float
+    tolerance needed; equal ratios are a tie. A task with no defined pass
+    rate on either side (runs_graded == 0, or a legacy entry without pass
+    counts) is excluded from the counts and reported as ungraded.
+    """
+    a_better = b_better = ties = ungraded = 0
+    for index in sorted(tasks_a.keys() & tasks_b.keys()):
+        counts_a, counts_b = tasks_a[index], tasks_b[index]
+        if counts_a is None or counts_b is None:
+            ungraded += 1
+            continue
+        pass_a, graded_a = counts_a
+        pass_b, graded_b = counts_b
+        if graded_a == 0 or graded_b == 0:
+            ungraded += 1
+            continue
+        lhs, rhs = pass_a * graded_b, pass_b * graded_a
+        if lhs == rhs:
+            ties += 1
+            continue
+        winner = "A" if lhs > rhs else "B"
+        if lhs > rhs:
+            a_better += 1
+        else:
+            b_better += 1
+        print(
+            f"  task {index}: A {pass_a}/{graded_a}, B {pass_b}/{graded_b} -> {winner}"
+        )
+    summary = (
+        f"summary: A better on {a_better} task(s), B better on {b_better}, tie {ties}"
+    )
+    if ungraded:
+        summary += f", {ungraded} ungraded excluded"
+    print(summary)
+
+
+def run_ab(db_path: Path, benchmark: str, agent_a: str, agent_b: str) -> int:
+    """A/B view over benchmark_runs (not a gate: 0 on success, 2 on bad input)."""
+    if agent_a == agent_b:
+        raise GateInputError(f"agent A and B are the same: {agent_a!r}")
+    if not db_path.exists():
+        raise GateInputError(f"db not found: {db_path}")
+    conn = sqlite3.connect(db_path)
+    try:
+        try:
+            has_table = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+                " AND name='benchmark_runs'"
+            ).fetchone()
+            if has_table is None:
+                raise GateInputError(f"db {db_path} has no benchmark_runs table")
+            runs_a = _agent_runs(conn, agent_a, benchmark)
+            runs_b = _agent_runs(conn, agent_b, benchmark)
+        except sqlite3.DatabaseError as exc:
+            raise GateInputError(
+                f"unreadable or incompatible db {db_path}: {exc}"
+            ) from exc
+    finally:
+        conn.close()
+
+    print(f"A/B: {agent_a} (A) vs {agent_b} (B) on {benchmark}")
+    print(
+        "NOTE: benchmark_runs stores no suite identity (version/config) —"
+        " v1 assumes both agents ran the same suite."
+    )
+    for aid, runs in ((agent_a, runs_a), (agent_b, runs_b)):
+        print(f"{aid}: {len(runs)} run(s)")
+        for run_id, ts, score, components, _per_task, _truncated in runs:
+            print(
+                f"  {run_id}  {ts}  effective {_effective_score(score, components):.3f}"
+            )
+
+    latest_a, latest_b = runs_a[0], runs_b[0]
+    eff_a = _effective_score(latest_a[2], latest_a[3])
+    eff_b = _effective_score(latest_b[2], latest_b[3])
+    print(f"{agent_a} effective (latest): {eff_a:.3f}")
+    print(f"{agent_b} effective (latest): {eff_b:.3f}")
+    print(f"delta (A - B): {eff_a - eff_b:+.3f}")
+
+    tasks_a = _parse_per_task(latest_a[0], latest_a[4])
+    tasks_b = _parse_per_task(latest_b[0], latest_b[4])
+    only_a = len(tasks_a.keys() - tasks_b.keys())
+    only_b = len(tasks_b.keys() - tasks_a.keys())
+    truncated = bool(latest_a[5]) or bool(latest_b[5])
+    print(f"per-task diff (latest runs {latest_a[0]} vs {latest_b[0]}):")
+    if only_a or only_b or truncated:
+        reasons = []
+        if only_a or only_b:
+            reasons.append(
+                f"task sets differ ({only_a} task(s) only in A,"
+                f" {only_b} task(s) only in B)"
+            )
+        if truncated:
+            reasons.append("per_task is truncated")
+        print(
+            f"INCOMPLETE COMPARISON: {'; '.join(reasons)} —"
+            " counts cover the intersection only"
+        )
+    _print_task_diff(tasks_a, tasks_b)
+    return 0
+
+
 def run_gate(base_path: Path, head_path: Path) -> int:
     """Diff-based declaration gate (design §2, rules A and B). Returns 0/1."""
     base = agents_map(load_catalog(base_path), "base")
@@ -370,10 +557,20 @@ def main(argv: list[str] | None = None) -> int:
         "--catalog", type=Path, default=Path("config/agents-catalog.toml")
     )
 
+    ab_parser = sub.add_parser(
+        "ab", help="A/B view: agent A vs B on one benchmark (not a gate)"
+    )
+    ab_parser.add_argument("--db", required=True, type=Path)
+    ab_parser.add_argument("--benchmark", required=True)
+    ab_parser.add_argument("agent_a")
+    ab_parser.add_argument("agent_b")
+
     args = parser.parse_args(argv)
     try:
         if args.mode == "gate":
             return run_gate(args.base_file, args.head_file)
+        if args.mode == "ab":
+            return run_ab(args.db, args.benchmark, args.agent_a, args.agent_b)
         return run_verify(args.db, args.catalog, args.eps)
     except GateInputError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

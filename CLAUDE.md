@@ -267,6 +267,15 @@ uv run pytest orchestrator/tests/
    - `verify --db arbiter.db [--eps 0.05]` — локальный data-gate: сверка
      заявленного `rank_score` со средним эффективных скоров по `run_ids`
      (семантика `get_benchmark_score`)
+   - `ab --db arbiter.db --benchmark T A B` — A/B-вью «агент A vs B на
+     бенчмарке T» как вход для человеческого гейта флипа `routable` (это
+     вью, не гейт — при успехе всегда exit 0): эффективные скоры
+     (последний прогон по `ts DESC, run_id DESC`), дельта, по-задачный
+     дифф по пересечению `task_index` (точное целочисленное сравнение
+     pass rate, без float-допуска); расхождение наборов задач или
+     `per_task_truncated` → пометка `INCOMPLETE COMPARISON`. Ограничение
+     v1: `benchmark_runs` не хранит suite identity — вью предполагает
+     один суит у обоих агентов и явно печатает это в выводе
    - Дизайн: `docs/2026-07-05-routable-gate-design.md`
 
 6. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
