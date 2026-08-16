@@ -37,6 +37,7 @@
 ### ADR-ECO-003a: жизненный цикл модели — остался один пункт arbiter
 
 - [ ] A/B-вью над `benchmark_runs`: «модель A vs B на suite T» как вход для человеческого гейта флипа `routable` @owner:github:andrei-shtanakov @trigger:"два сопоставимых rank_score на одном golden suite_id" @id:benchmark-ab-view
+  - Триггер сработал 2026-08-16: `req-extraction` — второй суит с сопоставимыми `rank_score` (три агента), см. `docs/2026-08-16-r07-crossover-gate-analysis.md`
   - Два других пункта arbiter из ADR закрыты: мёртвые ключи → `retired` (`6ee2f39`, #32), гейт routable-PR на benchmark-эвиденс (`6a1fbb2`, #41)
   - `atp-platform#golden-suite-ab` снят как blocker: такого принятого узла/issue у ATP
     нет; готовность полностью задаёт измеримый trigger выше
@@ -53,9 +54,9 @@
 клампованная дельта меняет исход только на почти-равных кандидатах и **не** переворачивает
 доминантный (1.0) лист дерева.
 
-- [ ] Crossover-гейт (task-dependence, а не global bias) на бенчмарке №2 @owner:github:andrei-shtanakov @blocked_by:atp-platform#second-task-type-sweep @trigger:"второй task_type с rank_score в benchmark_runs" @id:r-07-crossover-gate
-  - Один бенчмарк доказал *механизм* (проводка + магнитуда сигнала), не направление
-- [ ] Развилка по силе связи: на реальном ре-свипе Δ`rank_score` ≈ 0.08 при разумном весе ≈ 0.15 не переворачивает доминантный лист → выбрать (а) более сильную связь `rank_score` с confidence или (б) переобучение дерева на мягкие листья @owner:github:andrei-shtanakov @blocked_by:todo://arbiter/r-07-crossover-gate @id:r-07-link-strength-decision
+- [ ] Развилка по силе связи: на реальном ре-свипе Δ`rank_score` ≈ 0.08 при разумном весе ≈ 0.15 не переворачивает доминантный лист → выбрать (а) более сильную связь `rank_score` с confidence или (б) переобучение дерева на мягкие листья @owner:github:andrei-shtanakov @id:r-07-link-strength-decision
+  - Разблокирована: crossover-гейт закрыт 2026-08-16 анализом (`docs/2026-08-16-r07-crossover-gate-analysis.md`)
+  - Аргумент из данных бенчмарка №2: усиление веса ничего не даёт на суитах-ничьих — разброс есть только там, где суит реально дифференцирует агентов; сильная форма crossover (переворот ранжирования) на сатурированном суите ненаблюдаема и едет сюда контекстом
 
 ---
 
@@ -65,7 +66,7 @@
 - [x] **Maestro R-05 contract-level** — 4 subprocess-теста (`f1f7d26`)
 - [x] **RD-006 M4 (Maestro)** — `authority_context` едет в `constraints` при вызове `route_task` (`maestro/coordination/routing.py`)
 - [x] **RD-006 M2 (steward)** — `profiles/authority.yaml` как SSOT; в arbiter вендорнута пиненая копия (`0cb27c8`, #52)
-- [ ] **Данные для R-07 №2 и A/B-вью** — прогон второго task_type тремя агентами @owner:repo:atp-platform @blocked_by:atp-platform#second-task-type-sweep @id:r-07-second-task-type-data
+- [x] **Данные для R-07 №2 и A/B-вью** — прогон второго task_type тремя агентами @owner:repo:atp-platform @id:r-07-second-task-type-data — доставлено 2026-08-16: 3 прогона `req-extraction` в `benchmark_runs` через `report_benchmark`, atp-platform#279 закрыт
 
 Пункты про TTL/retention и GIN-индекс для `benchmark_runs` относятся к **Maestro-side**
 таблице и живут в их `TODO.md`; наша SQLite-таблица чистится общим 90-дневным retention.
@@ -75,6 +76,8 @@
 ## Закрыто
 
 Хронологически, свежее сверху. Подробности — в PR и docs/.
+
+- **R-07 crossover-гейт** (2026-08-16) — закрыт анализом: `docs/2026-08-16-r07-crossover-gate-analysis.md`. Бенчмарк №2 (`req-extraction`, 3 прогона atp-platform) показал: сигнал `rank_score` task-зависим (Δ 0.209 на `code-review` не переносится, ничья 1.0 на `req-extraction`), global bias не утекает, re-rank на ничьей — честный no-op. Оговорка: суит сатурирован, сильная форма crossover ненаблюдаема — контекст уехал в `r-07-link-strength-decision`
 
 - **Governance-гейт и обвязка CI** (07-16…07-19): governance gate в required checks (`06c8cf1`, #57), обновление путей Maestro (`ab17ad2`, #55), CODEOWNERS (`9643b90`), bump `mcp` 1.27.0 → 1.28.1 (`694f5fe`, #56)
 - **M3-obs: per-request trace binding** (`e25ffed`, #59): `params._meta.traceparent` из maestro#88 биндится на время dispatch (`obs::bind_request_trace`, thread-local + RAII guard); мусор/отсутствие — молча текущее поведение. Плюс уточнение docs: логи идут в OTel JSONL, не в stderr (`faf9be3`, #58)
