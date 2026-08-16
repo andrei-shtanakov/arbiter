@@ -17,12 +17,14 @@ from tests.test_routable_gate import BENCHMARK_RUNS_SCHEMA
 
 
 def task(index: int, passed: int, graded: int) -> dict[str, Any]:
-    """Minimal per_task entry in the shape report_benchmark ingests."""
+    """per_task entry: contract-v1 required fields (task_index,
+    duration_seconds) + the pass-count extension newer payloads carry."""
     return {
         "task_index": index,
         "run_pass_count": passed,
         "runs_graded": graded,
         "score": 0.0,
+        "duration_seconds": 1.0,
     }
 
 
@@ -190,8 +192,16 @@ class TestAbPerTask:
         self, tmp_path: Path, capsys: Any
     ) -> None:
         # Ранние payload'ы (реальные строки 2026-06/07 в arbiter.db) не несут
-        # run_pass_count/runs_graded вовсе — это «не оценено», не порча.
-        legacy = [{"task_index": 0, "score": 0.0, "task_type": "review"}]
+        # run_pass_count/runs_graded вовсе — контракт v1 их и не требует;
+        # это «не оценено», не порча.
+        legacy = [
+            {
+                "task_index": 0,
+                "score": 0.0,
+                "task_type": "review",
+                "duration_seconds": 1.0,
+            }
+        ]
         rows = two_agents(a_tasks=legacy, b_tasks=[task(0, 3, 3)])
         assert ab(tmp_path, rows) == 0
         out = capsys.readouterr().out

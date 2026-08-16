@@ -341,11 +341,15 @@ def _parse_per_task(
 ) -> dict[int, tuple[int, int] | None]:
     """per_task JSON -> {task_index: (run_pass_count, runs_graded) | None}.
 
-    Ingest (report_benchmark) validates the payload shape, so anything
-    unreadable here is corrupted data — exit-2 class, mirroring the ts rule
-    in _verify_one. Exception: early real payloads (2026-06/07 rows) carry
-    per_task entries with no run_pass_count/runs_graded at all — that is a
-    legitimate older shape, mapped to None (= ungraded), not corruption.
+    Ingest (report_benchmark) guarantees only that per_task is a JSON
+    array — entries are stored as-is, unvalidated — so a non-array or
+    unparseable per_task here is corrupted data (exit-2 class, mirroring
+    the ts rule in _verify_one). Pass counts are not part of the v1
+    contract at all (WireTaskResult requires only task_index +
+    duration_seconds); run_pass_count/runs_graded are an extension newer
+    ATP payloads carry. Entries without them (real 2026-06/07 rows) are
+    therefore a legitimate shape, mapped to None (= ungraded); a count
+    that is present but not an integer is still treated as corrupted.
     """
 
     def _int(value: Any) -> int:
