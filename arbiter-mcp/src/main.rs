@@ -222,6 +222,30 @@ fn main() {
         "configuration loaded"
     );
 
+    // Validate agents.toml against the user-config model catalog
+    // (ADR-ECO-003b last mile, PP-103). Inconsistent pair -> fail-loud;
+    // no catalog on this machine -> warn and keep historical behavior.
+    match arbiter_mcp::catalog_guard::startup_catalog_check(&config.agents) {
+        Ok(arbiter_mcp::catalog_guard::CatalogCheck::Skipped { reason }) => {
+            eprintln!("WARNING: {reason}; agents.toml not validated against the catalog");
+        }
+        Ok(arbiter_mcp::catalog_guard::CatalogCheck::Validated { path, warnings }) => {
+            for w in &warnings {
+                eprintln!("WARNING: catalog [{}] {}", w.code, w.message);
+            }
+            info!(
+                event = "arbiter.catalog_validated",
+                path = %path.display(),
+                warnings = warnings.len(),
+                "agents.toml validated against model catalog"
+            );
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            process::exit(1);
+        }
+    }
+
     // Load decision tree (optional — runs in degraded round-robin mode if unavailable)
     let tree = match std::fs::read_to_string(&args.tree) {
         Ok(json) => match DecisionTree::from_json(&json) {

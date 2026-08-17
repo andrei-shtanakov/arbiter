@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 - **R-07 thin slice (shipped, scoped to a tiebreaker):** `./2026-06-13-r07-phase1-arbiter-rerank-plan.md` (source of truth for code) · `./2026-06-13-r07-thin-slice.md` (motivation + review) · `../prograph-vault/authored/notes/status/2026-06-13-r07-phase0-data-recon.md` (data recon outcome)
 - **Shadow routing Phase 1 (shipped):** `./20260714shadowroutingphase1plan.md` — Phase 2 candidates listed there are deferred until Phase 1 data shows the loop is used
 
-arbiter's role in the ecosystem: MCP policy engine / router. R1–R4 of own roadmap done; DTO + E2E smoke test for Maestro ready (commit `861534e`). **Maestro R-01..R-03 closed** (v0.2.0) — integration shipped. **R-10 closed** (`fe4c033` + `6efe792`, linux-x64 + macos-arm64 release artifacts). **arbiter#9 fixed** (`d1a8ecd`, 2026-04-25) — `metadata.decision_id` surfaced in `route_task` response, paired with Maestro `e5915f2`/`f1f7d26`. **observability v1 (Rust)** shipped (`d1a8ecd`) — `arbiter-core::obs` + structured events. **R-06b M4 closed** (2026-05-23, PRs #11/#13/#14/#15) — 6th MCP tool `report_benchmark` + `benchmark_runs` table + `protocolVersion` 1.1.0 + workspace v0.2.0. **R-07 Phase 1 shipped** (`eec1879`/#30, scoped by `1fbbdf7`/#34) — closes the `benchmark_runs` read gap (table was written but never read): task_type-scoped `get_benchmark_score` + `apply_benchmark_rerank` in `route_task` (gated by `ARBITER_BENCH_WEIGHT`, audit in `pred.path`, metric kept out of frozen DTO). Deliberately a **tiebreaker**, not a DT override — it does not overturn a dominant (1.0) leaf. One benchmark proves the mechanism; the crossover/task-dependence gate is deferred to benchmark #2 (waiting on atp-platform data). **Shadow routing Phase 1 shipped** (`09b7b88`, #53) — `shadow_json` in the decision log + offline `eval_shadow.py`; Phase 2 deferred. **RD-006 authority plane** M1/M3 shipped (`e5237d6`, `0cb27c8`) — role/phase allowlist, fail-closed, vendored `authority.toml` behind a pinned-SHA CI gate.
+arbiter's role in the ecosystem: MCP policy engine / router. R1–R4 of own roadmap done; DTO + E2E smoke test for Maestro ready (commit `861534e`). **Maestro R-01..R-03 closed** (v0.2.0) — integration shipped. **R-10 closed** (`fe4c033` + `6efe792`, linux-x64 + macos-arm64 release artifacts). **arbiter#9 fixed** (`d1a8ecd`, 2026-04-25) — `metadata.decision_id` surfaced in `route_task` response, paired with Maestro `e5915f2`/`f1f7d26`. **observability v1 (Rust)** shipped (`d1a8ecd`) — `arbiter-core::obs` + structured events. **R-06b M4 closed** (2026-05-23, PRs #11/#13/#14/#15) — 6th MCP tool `report_benchmark` + `benchmark_runs` table + `protocolVersion` 1.1.0 + workspace v0.2.0. **R-07 Phase 1 shipped** (`eec1879`/#30, scoped by `1fbbdf7`/#34) — closes the `benchmark_runs` read gap (table was written but never read): task_type-scoped `get_benchmark_score` + `apply_benchmark_rerank` in `route_task` (gated by `ARBITER_BENCH_WEIGHT`, audit in `pred.path`, metric kept out of frozen DTO). Deliberately a **tiebreaker**, not a DT override — it does not overturn a dominant (1.0) leaf. One benchmark proves the mechanism; the crossover/task-dependence gate is deferred to benchmark #2 (waiting on atp-platform data). **Shadow routing Phase 1 shipped** (`09b7b88`, #53) — `shadow_json` in the decision log + offline `eval_shadow.py`; Phase 2 deferred. **RD-006 authority plane** M1/M3 shipped (`e5237d6`, `0cb27c8`) — role/phase allowlist, fail-closed, vendored `authority.toml` behind a pinned-SHA CI gate. **PP-103 catalog last mile shipped** (issue #72, PR #73, 2026-08-17) — `catalog_guard.rs`: arbiter-mcp validates `agents.toml` against the user-config catalog at startup (fail-loud on missing/retired refs, Check 5; no catalog → warn-and-start) + provider-swap smoke (`orchestrator/tests/test_provider_swap_smoke.py`).
 
 ## `../_cowork_output/` — dev-only
 
@@ -96,6 +96,7 @@ arbiter/
 │       │   └── get_budget.rs       # Budget status: spend tracking, per-agent costs
 │       ├── features.rs           # Task JSON + agent stats → 22-dim float vector
 │       ├── agents.rs             # Agent registry (TOML config + SQLite stats)
+│       ├── catalog_guard.rs      # Startup validation: agents.toml vs user-config catalog (PP-103)
 │       ├── db.rs                 # SQLite schema, migrations, queries
 │       ├── config.rs             # TOML config loader (agents.toml, invariants.toml)
 │       ├── metrics.rs            # In-memory metrics collector (counters, latency histograms)
@@ -215,6 +216,7 @@ anyhow = "1"
 9. **Graceful shutdown** — SIGTERM/SIGINT handlers set a flag; the server drains the current request and exits
 10. **Data retention** — records older than 90 days are purged on startup
 11. **Crash recovery** — orphaned `running_tasks` counters are reset on startup
+12. **Catalog validation at startup** (PP-103) — `agents.toml` is cross-checked against the user-config catalog (`$ATP_CATALOG` → XDG `atp/`): missing/retired model refs (Check 5) fail startup; no catalog on the machine → warning + normal start; legacy bare ids (`[aider]`) are outside the SSOT (warning only). Startup-only — hot reload does not re-run the check
 
 ---
 
@@ -333,7 +335,7 @@ See `arbiter-spec.md` sections 4.2 (`route_task`), 4.3 (`report_outcome`), 4.4 (
 | Golden (Rust) | `cargo test --test golden_tests` | `arbiter-mcp/tests/golden_tests.rs` | 12 fixtures |
 | report_benchmark (Rust) | `cargo test --test report_benchmark_test` | `arbiter-mcp/tests/report_benchmark_test.rs` | 16 tests |
 | Obs contract (Rust) | `cargo test` | `arbiter-mcp/tests/contract_test.rs`, `arbiter-core/tests/` | 7 tests |
-| MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 13 tests |
+| MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 16 tests |
 | Workspace (Python) | `uv run pytest tests/` | `tests/` | 95 tests |
 | Benchmarks (Rust) | `cargo run --bin arbiter-cli` | `arbiter-cli/src/` | 5 benchmarks |
 
