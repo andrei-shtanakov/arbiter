@@ -8,6 +8,7 @@
 #![allow(clippy::arc_with_non_send_sync)]
 
 pub mod agents;
+pub mod catalog_guard;
 pub mod config;
 pub mod db;
 pub mod features;

@@ -36,7 +36,8 @@
 
 ### ADR-ECO-003b: каталог в рантайме (ADR ратифицирован 2026-07-06)
 
-- [ ] Подключить `arbiter_core::catalog` к `arbiter-mcp` @owner:github:andrei-shtanakov @id:arbiter-mcp-catalog-loader — загрузчик user-config каталога сейчас поднят только в `arbiter-cli`; сам сервер по-прежнему читает вендоренный `config/agents.toml`, то есть шипнутый бинарник не видит `$ATP_CATALOG`/XDG
+- [x] Подключить `arbiter_core::catalog` к `arbiter-mcp` @owner:github:andrei-shtanakov @id:arbiter-mcp-catalog-loader — сделано (issue #72 / PP-103): `catalog_guard.rs` — сервер при старте валидирует `agents.toml` против user-config каталога (`$ATP_CATALOG` → XDG), fail-loud на невалидной паре (Check 5), warn-and-start при отсутствии каталога
+- [x] Provider-swap смоук (acceptance (c) PP-103) @owner:github:andrei-shtanakov @id:approved-pp-103-catalog-last-mile — сделано (issue #72): retire X + promote Y только правкой каталога (+scaffold-apply/рестарт) переключает `route_task` X → Y при байтово неизменном потребителе; `orchestrator/tests/test_provider_swap_smoke.py`
 - [ ] Общий conformance-тест на фикстурах каталога для трёх загрузчиков (Maestro / ATP / arbiter-Rust) @owner:repo:devtools @id:catalog-conformance-fixtures — со стороны arbiter нужны Rust-фикстуры и участие в общем наборе
 
 ### R-07: benchmark-aware routing — открытые хвосты
@@ -67,6 +68,8 @@
 ## Закрыто
 
 Хронологически, свежее сверху. Подробности — в PR и docs/.
+
+- **PP-103: последняя миля ADR-ECO-003b** (issue #72, 2026-08-17): (1) `arbiter-mcp/src/catalog_guard.rs` — при старте сервер валидирует `agents.toml` против user-config каталога (резолюция D2 `$ATP_CATALOG` → XDG `atp/`): невалидная пара (missing/retired модель, Check 5) → fail-loud exit 1 со списком находок; каталог не сконфигурирован (XDG-слой без файла) → warn + штатный старт; явный `$ATP_CATALOG` на отсутствующий/битый файл → ошибка. Валидация, не замена enrollment-плоскости: bare-id (`[aider]`) вне SSOT → warning. (2) Provider-swap смоук `orchestrator/tests/test_provider_swap_smoke.py`: retire X + promote Y только правкой каталога + штатный операторский шаг (`gen_agents_scaffold.py` → apply → рестарт) переключает `route_task` X → Y; потребитель байтово неизменен; плюс fail-loud тест на retired-ссылке
 
 - **A/B-вью над `benchmark_runs`** (#70, 2026-08-16): подкоманда `ab` в `scripts/check_routable_gate.py` — «агент A vs B на бенчмарке T» для человеческого гейта флипа `routable` (вью, не гейт). Эффективные скоры (семантика `get_benchmark_score`, последний прогон `ts DESC, run_id DESC`), по-задачный дифф по пересечению `task_index` (точное целочисленное сравнение pass rate), legacy/`runs_graded=0` → ungraded, `INCOMPLETE COMPARISON` при разных наборах/truncated. Ограничение v1: suite identity в `benchmark_runs` не хранится — печатается в NOTE. **Все три arbiter-пункта ADR-ECO-003a закрыты** (мёртвые ключи `6ee2f39` #32, routable-гейт `6a1fbb2` #41, вью #70); статус ADR — Proposed, `agent_id` не автобампится (D1); `atp-platform#golden-suite-ab` был снят как blocker ранее
 - **R-07 crossover-гейт** (2026-08-16) — закрыт анализом: `docs/2026-08-16-r07-crossover-gate-analysis.md`. Бенчмарк №2 (`req-extraction`, 3 прогона atp-platform) показал: сигнал `rank_score` task-зависим (Δ 0.209 на `code-review` не переносится, ничья 1.0 на `req-extraction`), global bias не утекает, re-rank на ничьей — честный no-op. Оговорка: суит сатурирован, сильная форма crossover ненаблюдаема — контекст уехал в `r-07-link-strength-decision`
