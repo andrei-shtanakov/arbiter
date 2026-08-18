@@ -38,7 +38,7 @@
 
 - [x] Подключить `arbiter_core::catalog` к `arbiter-mcp` @owner:github:andrei-shtanakov @id:arbiter-mcp-catalog-loader — сделано (issue #72 / PP-103, PR #73): `catalog_guard.rs` — сервер при старте валидирует `agents.toml` против user-config каталога (`$ATP_CATALOG` → XDG), fail-loud на невалидной паре (Check 5), warn-and-start при отсутствии каталога
 - [x] Provider-swap смоук (acceptance (c) PP-103) @owner:github:andrei-shtanakov @id:approved-pp-103-catalog-last-mile — сделано (issue #72, PR #73): retire X + promote Y только правкой каталога (+scaffold-apply/рестарт) переключает `route_task` X → Y при байтово неизменном потребителе; `orchestrator/tests/test_provider_swap_smoke.py`
-- [ ] Общий conformance-тест на фикстурах каталога для трёх загрузчиков (Maestro / ATP / arbiter-Rust) @owner:repo:devtools @id:catalog-conformance-fixtures — со стороны arbiter нужны Rust-фикстуры и участие в общем наборе
+- [x] Общий conformance-тест на фикстурах каталога для трёх загрузчиков (Maestro / ATP / arbiter-Rust) @owner:github:andrei-shtanakov @id:catalog-conformance-fixtures — сторона arbiter закрыта (inbox issue #74, PR #75): вендорена пиненая копия SSOT-набора devtools (`arbiter-core/tests/fixtures/catalog-conformance/v1/` + `PIN`, `devtools@2a5c154`), сьют `catalog_conformance.rs` гоняет все `[[case]]`/`[[pathres]]` и сверяет целостность копии с `manifest.json`; локальные покейсовые фикстуры сняты. Owner самого набора остаётся devtools; участие Maestro/ATP — на их стороне
 
 ### R-07: benchmark-aware routing — открытые хвосты
 

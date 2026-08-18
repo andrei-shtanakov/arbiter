@@ -162,10 +162,13 @@ arbiter'а до появления runtime-потребителя.
     фикстуру. Третьего дрейфующего артефакта не появляется (§8 Риск №1);
     тесты — не shipped-код, читать in-repo dev-вендор им можно. Ассерты — на
     инварианты (парсится, 0 errors, есть routable-агенты), не на точные счётчики.
-  - битые случаи — фикстуры в `arbiter-core/tests/fixtures/catalog/`:
-    `retired_ref.toml` (V3), `unknown_harness.toml` (V1), `unknown_model.toml` (V2),
-    `dup_agent.toml` (V4), `routable_conflict.toml` (V5), `deprecated_ref.toml` (V6),
-    `unknown_enum.toml` (V7 — парсится, warning);
+  - битые случаи — **АМЕНДМЕНТ 2026-08-18** (issue #74): локальные покейсовые
+    фикстуры сняты, их место заняла вендоренная пиненая копия SSOT-набора
+    devtools — `arbiter-core/tests/fixtures/catalog-conformance/v1/` (+ `PIN`),
+    сьют `arbiter-core/tests/catalog_conformance.rs`. Покрытие то же (V1–V7),
+    но набор общий с Maestro/ATP, а целостность копии сверяется с
+    `manifest.json`. Вторая половина §7 (happy-path на вендорном
+    `config/agents-catalog.toml`) осталась в `catalog_validation.rs`;
   - пустой файл / битый TOML → `CatalogError`;
   - незнакомое поле → парсится без ошибки.
 - **Резолюция** (unit): все ветки D2 через инжектированный env
@@ -177,8 +180,14 @@ arbiter'а до появления runtime-потребителя.
 
 ## 8. Риски / открытые вопросы
 
-- **Схема-дрейф трёх загрузчиков** (риск №1 ADR-003b): митигация — фикстуры
-  оформлены для будущего шаринга; conformance-тест — отдельная задача в devtools.
+- **Схема-дрейф трёх загрузчиков** (риск №1 ADR-003b): ЗАКРЫТ со стороны
+  arbiter 2026-08-18 (issue #74). Owner набора — devtools
+  (`contracts/catalog-conformance-fixtures/v1`, PP-103 acceptance (b));
+  arbiter вендорит пиненую копию и гоняет её в `catalog_conformance.rs`.
+  Первая же прогонка нашла реальное расхождение: `harnesses.*.shim` был
+  обязательным полем в arbiter, хотя роутинг его не читает и в словаре
+  V1–V7 правила на него нет — здоровый каталог отвергался некодированной
+  parse-ошибкой. Поле стало `Option<String>`.
 - **ADR-003b всё ещё Proposed**: эта реализация — первый исполненный пункт его
   рекомендаций; при ратификации обновить статус ADR ссылкой на этот дизайн.
 - **`<eco>`-namespace `atp/`** зафиксирован здесь; если владельцы ATP/Maestro

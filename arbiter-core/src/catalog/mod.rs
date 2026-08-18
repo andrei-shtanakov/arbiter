@@ -194,8 +194,13 @@ pub struct ModelEntry {
 pub struct HarnessEntry {
     /// Launch mechanics kind.
     pub kind: HarnessKind,
-    /// ATP-side shim path (informational for arbiter).
-    pub shim: String,
+    /// ATP-side shim path (informational for arbiter; never read by
+    /// routing). Optional: a missing shim has no rule in the V1-V7
+    /// vocabulary, so requiring it would reject an otherwise healthy
+    /// catalog with an uncoded parse error — a conformance divergence
+    /// found by the shared fixture set (see `tests/catalog_conformance.rs`).
+    #[serde(default)]
+    pub shim: Option<String>,
     /// Env var the ATP shim uses to pin the model.
     #[serde(default)]
     pub model_env: Option<String>,

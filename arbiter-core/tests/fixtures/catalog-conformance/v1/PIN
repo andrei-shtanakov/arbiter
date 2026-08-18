@@ -1,0 +1,20 @@
+# VENDORED PINNED COPY — do not hand-edit the files under this directory.
+#
+# source: devtools@2a5c1543643ac11da20f911c14c35b049e48eae8 contracts/catalog-conformance-fixtures/v1
+# vendored: 2026-08-18
+# accepted from: arbiter inbox issue #74 (slug catalog-conformance-fixtures)
+#
+# SSOT owner of this set is devtools (PP-103 acceptance (b), devtools#43/#44).
+# ADR-ECO-003b risk #1: three catalog loaders (Maestro / ATP / arbiter) may
+# drift; this set makes the drift observable. arbiter is the reference
+# implementation of rules V1..V7.
+#
+# Integrity surface: manifest.json holds a sha256 per file plus a tree_sha256
+# over the sorted "<path> <sha256>\n" lines. manifest.json and this PIN file
+# are excluded from the surface. Verified by
+# `cargo test -p arbiter-core --test catalog_conformance`.
+#
+# Update procedure: re-copy the whole v1/ directory from a newer devtools
+# commit, refresh the `source:`/`vendored:` lines above, and re-run the
+# conformance suite. v1/ only ever grows additively (new fixtures + new
+# [[case]] rows); a semantics change to an existing case ships as v2/.
