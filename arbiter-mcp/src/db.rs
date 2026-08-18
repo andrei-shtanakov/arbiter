@@ -1901,8 +1901,9 @@ mod tests {
         .unwrap();
         db.conn
             .execute(
-                "UPDATE benchmark_runs SET inserted_at = datetime('now', '-3650 days')",
-                [],
+                "UPDATE benchmark_runs SET inserted_at = datetime('now', '-3650 days') \
+                 WHERE run_id = ?1",
+                params!["ancient-1"],
             )
             .unwrap();
 
