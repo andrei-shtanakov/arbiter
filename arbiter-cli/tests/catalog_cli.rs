@@ -23,9 +23,12 @@ fn vendored_catalog() -> String {
     )
 }
 
-fn fixture(name: &str) -> String {
+/// A fixture from the vendored conformance set (pinned copy owned by
+/// devtools) — the CLI smoke tests reuse it so the repo keeps exactly one
+/// set of catalog fixtures.
+fn fixture(rel: &str) -> String {
     format!(
-        "{}/../arbiter-core/tests/fixtures/catalog/{name}",
+        "{}/../arbiter-core/tests/fixtures/catalog-conformance/v1/fixtures/{rel}",
         env!("CARGO_MANIFEST_DIR")
     )
 }
@@ -43,7 +46,10 @@ fn check_passes_on_vendored_catalog() {
 
 #[test]
 fn check_fails_on_retired_reference() {
-    let out = run_catalog(&["check"], &[("ATP_CATALOG", &fixture("retired_ref.toml"))]);
+    let out = run_catalog(
+        &["check"],
+        &[("ATP_CATALOG", &fixture("invalid/v3-retired-ref.toml"))],
+    );
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stdout).contains("V3"));
 }
