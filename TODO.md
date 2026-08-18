@@ -41,6 +41,11 @@
 - [x] Общий conformance-тест на фикстурах каталога для трёх загрузчиков (Maestro / ATP / arbiter-Rust) @owner:github:andrei-shtanakov @id:catalog-conformance-fixtures — сторона arbiter закрыта (inbox issue #74, PR #75): вендорена пиненая копия SSOT-набора devtools (`arbiter-core/tests/fixtures/catalog-conformance/v1/` + `PIN`, `devtools@2a5c154`), сьют `catalog_conformance.rs` гоняет все `[[case]]`/`[[pathres]]` и сверяет целостность копии с `manifest.json`; локальные покейсовые фикстуры сняты. Owner самого набора остаётся devtools; участие Maestro/ATP — на их стороне
 - [x] Пин-бамп conformance-набора каталога до `devtools@2533ff7` @owner:github:andrei-shtanakov @id:catalog-conformance-pin-bump-v1-gaps — сделано (inbox issue #76, PR #77): аддитивное расширение v1 (+`v1-empty-harnesses`, +`v7-unknown-kind`), семантика существующих кейсов не менялась. Загрузчик не правился — arbiter конформен на обоих новых кейсах (пустая map harness'ов → V1 на каждый агент; `kind` валидируется отдельно от `status`); обе фикстуры проверены мутацией
 
+### `benchmark_runs`: владение и предпосылки (решено по inbox #78)
+
+- [x] Решить владельца трёх пунктов про `benchmark_runs` (GIN-индекс, нормализация, TTL/retention) @owner:github:andrei-shtanakov @id:benchmark-runs-prereqs-ownership — решено (inbox issue #78, PR #79): **владелец — arbiter**, таблица наша и единственная релевантная. Maestro удаляет три своих watch-пункта (`r-07-prereq-gin-index`, `r-07-prereq-normalize`, `r-07-prereq-retention`); формулировки GIN/`jsonb` под SQLite неприменимы и переписаны ниже
+- [ ] Retention для `benchmark_runs`: политика **«последние N прогонов на пару (agent_id, benchmark_id)»**, не «старше X дней» @owner:github:andrei-shtanakov @trigger:"benchmark_runs > 10k строк ИЛИ файл БД заметно растёт из-за per_task" @id:benchmark-runs-retention — сейчас таблица не чистится ничем: `purge_older_than` покрывает только `outcomes`/`decisions`. Возрастной purge здесь был бы **активно вреден**: `get_benchmark_score` берёт последний прогон по паре, поэтому удаление по возрасту способно стереть единственный прогон агента и молча выключить re-rank для него. Не срочно: в таблице ~16 строк (13 свипа + 3 `req-extraction`)
+
 ### R-07: benchmark-aware routing — открытые хвосты
 
 Механизм сдан и сознательно сужен до тайбрейкера (decision C, `1fbbdf7` #34): аддитивная
@@ -61,8 +66,14 @@
 - [x] **RD-006 M2 (steward)** — `profiles/authority.yaml` как SSOT; в arbiter вендорнута пиненая копия (`0cb27c8`, #52)
 - [x] **Данные для R-07 №2 и A/B-вью** — прогон второго task_type тремя агентами @owner:repo:atp-platform @id:r-07-second-task-type-data — доставлено 2026-08-16: 3 прогона `req-extraction` в `benchmark_runs` через `report_benchmark`, atp-platform#279 закрыт
 
-Пункты про TTL/retention и GIN-индекс для `benchmark_runs` относятся к **Maestro-side**
-таблице и живут в их `TODO.md`; наша SQLite-таблица чистится общим 90-дневным retention.
+~~Пункты про TTL/retention и GIN-индекс для `benchmark_runs` относятся к Maestro-side
+таблице и живут в их `TODO.md`; наша SQLite-таблица чистится общим 90-дневным
+retention.~~ **Приписка была неверна дважды** (разобрано по inbox #78, 2026-08-18):
+таблица `benchmark_runs` — наша SQLite (`arbiter-spec.md` §3.2), у Maestro такой
+таблицы нет вовсе (их упоминания — указатель `correlation.py` и тест, читающий
+НАШУ БД); и `purge_older_than` чистит только `outcomes` и `decisions`, а
+`benchmark_runs` не трогает. Владелец всех трёх пунктов — arbiter; см. раздел
+«benchmark_runs» ниже.
 
 ---
 
@@ -98,4 +109,6 @@
 - ❌ Shared type library (R-14, XL) — 15 строк структур на двух языках с разными циклами релизов
 - ❌ Дальнейшее расширение MCP API без запроса потребителя — 6 инструментов заморожены
 - ❌ Автоматический бамп `agent_id` (ADR-ECO-003a D1) — это join-ключ между бенчмарками ATP и роутингом, а не версия зависимости
+- ❌ GIN-индекс по `benchmark_runs.per_task` (бывш. maestro `@id:r-07-prereq-gin-index`) — GIN/`jsonb` это PostgreSQL, у нас SQLite и плана миграции нет. Триггер («R-07 начинает писать SQL-фильтры по `per_task`») **не сработал**: `per_task` нигде не фильтруется в SQL — колонка читается целиком и парсится в приложении (`check_routable_gate.py`), а единственный горячий запрос `(agent_id, benchmark_id, ts DESC)` уже покрыт `idx_benchmark_runs_agent_bench_ts`. Появится реальный SQL-спрос — ответ в SQLite это generated column + индекс либо дочерняя таблица, но не GIN
+- ❌ Нормализация `benchmark_task_results` (бывш. maestro `@id:r-07-prereq-normalize`) — тот же триггер и то же состояние, что у GIN: формального запроса к `per_task` нет. Решается вместе с ним, если спрос появится
 - ❌ Discovery моделей внутри arbiter — владелец devtools (ADR-ECO-003a D5); роутинг не должен опрашивать провайдеров

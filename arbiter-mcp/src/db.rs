@@ -702,6 +702,13 @@ impl Database {
     /// Delete decisions and outcomes older than `days` days.
     ///
     /// Returns the total number of rows deleted across both tables.
+    ///
+    /// `benchmark_runs` is deliberately NOT purged here. It is a reference
+    /// dataset rather than a log: [`Self::get_benchmark_score`] reads the
+    /// latest run per `(agent_id, benchmark_id)`, so deleting by age could
+    /// erase an agent's only run for a benchmark and silently switch off its
+    /// R-07 re-rank. A keep-latest-N policy is tracked separately
+    /// (`@id:benchmark-runs-retention`; ownership settled by inbox #78).
     pub fn purge_older_than(&self, days: u32) -> Result<usize> {
         let threshold = format!("-{days} days");
         let outcomes_deleted: usize = self
@@ -1865,6 +1872,49 @@ mod tests {
             .unwrap();
         assert_eq!(d_count, 0);
         assert_eq!(o_count, 0);
+    }
+
+    #[test]
+    fn purge_older_than_never_touches_benchmark_runs() {
+        // Deliberate exclusion, not an oversight (inbox #78): benchmark_runs
+        // is a reference dataset. get_benchmark_score reads the LATEST run per
+        // (agent_id, benchmark_id), so an age-based purge could erase an
+        // agent's only run and silently switch off its R-07 re-rank. Anyone
+        // "closing the retention gap" by adding this table to purge_older_than
+        // has to delete this test first.
+        let db = setup_db();
+        db.insert_benchmark_run(&BenchmarkRunInput {
+            run_id: "ancient-1",
+            payload_version: "1.0.0",
+            benchmark_id: "code-review",
+            agent_id: "claude_code@claude-sonnet-4-6",
+            ts: "2020-01-01T00:00:00Z",
+            score: 0.9,
+            score_components: "{}",
+            total_tokens: None,
+            total_cost_usd: None,
+            duration_seconds: 0.0,
+            per_task: "[]",
+            per_task_total_count: 0,
+            per_task_truncated: 0,
+        })
+        .unwrap();
+        db.conn
+            .execute(
+                "UPDATE benchmark_runs SET inserted_at = datetime('now', '-3650 days')",
+                [],
+            )
+            .unwrap();
+
+        let deleted = db.purge_older_than(30).unwrap();
+        assert_eq!(deleted, 0, "purge must not count benchmark_runs rows");
+
+        assert_eq!(db.count_benchmark_runs("ancient-1").unwrap(), 1);
+        // The signal itself survives, which is the property that matters.
+        let score = db
+            .get_benchmark_score("claude_code@claude-sonnet-4-6", "code-review")
+            .unwrap();
+        assert_eq!(score, Some(0.9), "re-rank signal lost to retention");
     }
 
     #[test]
