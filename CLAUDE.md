@@ -215,7 +215,7 @@ anyhow = "1"
 7. **SQLite stores everything** — decisions, outcomes, agent stats, and benchmark runs (`benchmark_runs` table, R-06b M4). Schema in `arbiter-spec.md` section 3
 8. **Hot reload** — config and tree files are watched via `watcher.rs`; changes apply without restart
 9. **Graceful shutdown** — SIGTERM/SIGINT handlers set a flag; the server drains the current request and exits
-10. **Data retention** — records older than 90 days are purged on startup
+10. **Data retention** — `decisions` and `outcomes` older than 90 days are purged on startup. **`benchmark_runs` is deliberately NOT purged** (`purge_older_than` does not touch it): it is a reference dataset, not a log, and `get_benchmark_score` reads the latest run per `(agent_id, benchmark_id)` — an age-based purge could erase an agent's only run and silently disable its re-rank. A keep-latest-N policy is tracked as `@id:benchmark-runs-retention` (arbiter owns it; settled by inbox #78)
 11. **Crash recovery** — orphaned `running_tasks` counters are reset on startup
 12. **Catalog validation at startup** (PP-103) — `agents.toml` is cross-checked against the user-config catalog (`$ATP_CATALOG` → XDG `atp/`): missing/retired model refs (Check 5) fail startup; no catalog on the machine → warning + normal start; legacy bare ids (`[aider]`) are outside the SSOT (warning only). Startup-only — hot reload does not re-run the check
 
