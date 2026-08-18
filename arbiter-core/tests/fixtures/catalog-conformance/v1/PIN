@@ -1,8 +1,9 @@
 # VENDORED PINNED COPY — do not hand-edit the files under this directory.
 #
-# source: devtools@2a5c1543643ac11da20f911c14c35b049e48eae8 contracts/catalog-conformance-fixtures/v1
+# source: devtools@2533ff7b8c3afd74110b3838325bf76ba46ba186 contracts/catalog-conformance-fixtures/v1
 # vendored: 2026-08-18
-# accepted from: arbiter inbox issue #74 (slug catalog-conformance-fixtures)
+# accepted from: arbiter inbox issue #76 (slug catalog-conformance-pin-bump-v1-gaps)
+# previous pin: devtools@2a5c154 (issue #74) — additive bump, no case semantics changed
 #
 # SSOT owner of this set is devtools (PP-103 acceptance (b), devtools#43/#44).
 # ADR-ECO-003b risk #1: three catalog loaders (Maestro / ATP / arbiter) may
