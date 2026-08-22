@@ -250,7 +250,7 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
     benchmark_id          TEXT NOT NULL,
     agent_id              TEXT NOT NULL,
     ts                    TEXT NOT NULL,       -- RFC3339 UTC
-    score                 REAL NOT NULL,       -- 0.0-1.0 headline
+    score                 REAL NOT NULL,       -- headline, FRACTION in [0,1] (never a percent)
     score_components      TEXT NOT NULL,       -- JSON dict
     total_tokens          INTEGER,             -- nullable
     total_cost_usd        REAL,                -- nullable
@@ -258,7 +258,8 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
     per_task              TEXT NOT NULL,       -- JSON array of WireTaskResult
     per_task_total_count  INTEGER NOT NULL,
     per_task_truncated    INTEGER NOT NULL,    -- bool 0/1
-    inserted_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    inserted_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    score_semantics       TEXT                 -- v3: ATP score contract v1 block, nullable
 );
 -- Covering index for the obvious R-07 query
 -- (latest N scores for agent X on benchmark Y).
@@ -268,8 +269,15 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_runs_agent_bench_ts ON benchmark_runs(a
 ### 3.3 Migrations
 
 On startup, `arbiter` checks `schema_version`. If the table does not exist or the
-version is less than the current one, it applies migrations sequentially. The MVP uses
-a single migration (v1 — creation of all tables).
+version is less than the current one, it applies migrations sequentially. `ALTER TABLE`
+is not idempotent in SQLite, so every additive migration is gated on the recorded
+version and applied in one transaction with its own version bump.
+
+| v | change |
+|---|---|
+| 1 | creation of all tables and indices (idempotent `CREATE TABLE IF NOT EXISTS`) |
+| 2 | `decisions.shadow_json` (nullable) — shadow routing Phase 1 |
+| 3 | `benchmark_runs.score_semantics` (nullable) — ATP score contract v1 (inbox #82) |
 
 ---
 
@@ -558,7 +566,23 @@ In the MVP: state is managed via the running_tasks count:
 
 **Purpose:** persist per-agent per-benchmark scores from Maestro's external benchmark runs (ATP) into the `benchmark_runs` table, for R-07 (eval-driven routing) to consume as a routing-decision input.
 
-**Request schema:** see `arbiter-mcp/tests/contract/report_benchmark-v1.schema.json` (mirror of `maestro/contracts/benchmark/`). Required: `payload_version="1.0.0"`, `run_id`, `benchmark_id`, `agent_id`, `ts` (RFC3339), `score`, `score_components`, `duration_seconds`, `per_task`, `per_task_total_count`, `per_task_truncated`.
+**Request schema:** see `arbiter-mcp/tests/contract/report_benchmark-v1.schema.json` (mirror of `maestro/contracts/benchmark/`). Required: `payload_version="1.0.0"`, `run_id`, `benchmark_id`, `agent_id`, `ts` (RFC3339), `score`, `score_components`, `duration_seconds`, `per_task`, `per_task_total_count`, `per_task_truncated`. Optional: `total_tokens`, `total_cost_usd`, `score_semantics`.
+
+**`score` is a fraction in `[0, 1]`, never a percent in `[0, 100]`** (inbox #81). The
+field had two producers writing different quantities into it, and the consumer clamped
+to `[0, 1]`, so every percent above 1% arrived as an indistinguishable perfect `1.0`.
+The unit is now checkable rather than assumed: out of range → `-32602` at ingest, and a
+pre-existing out-of-range row is ignored by `get_benchmark_score` instead of clamped.
+
+**`score_semantics` says what the number means** (ATP benchmark score contract v1, inbox
+#82). Optional and stored verbatim — unknown keys are the producer's to add. Only
+`quality_signal` is read back: on the benchmark plane a task scores full marks for
+*returning a completed response*, not for the response being good, so `get_benchmark_score`
+withholds any run whose block is present but not `schema_version: 1` with
+`quality_signal: true`. An **absent** block is a legacy producer and stays usable — every
+row written before the contract existed has none, and reading those as non-quality would
+switch off R-07 for the whole existing dataset. Withheld runs are still stored: the run
+happened and stays inspectable, it just never acts as a routing tiebreaker.
 
 **Response:** `{"status": "created" | "duplicate", "run_id": <id>}`. Duplicate via `INSERT ... ON CONFLICT(run_id) DO NOTHING`.
 
@@ -571,13 +595,16 @@ In the MVP: state is managed via the running_tasks count:
 - AC-4.9.1: Happy path — valid payload with N≥1 per_task entries → `{status: "created"}`, exactly 1 row in `benchmark_runs` with all required columns populated (`run_id`, `payload_version`, `benchmark_id`, `agent_id`, `ts`, `score`, `score_components`, `duration_seconds`, `per_task`, `per_task_total_count`, `per_task_truncated`); optional columns `total_tokens`/`total_cost_usd` may be NULL when caller omits them from the payload; `inserted_at` is server-defaulted; `per_task` stored as JSON-encoded array.
 - AC-4.9.2: Duplicate idempotency — second `report_benchmark` with the same `run_id` → `{status: "duplicate"}`, exactly 1 row in `benchmark_runs` (no second insert). Verified for sequential + concurrent (2× `tokio::join!` writers).
 - AC-4.9.3: Missing required field (e.g. `agent_id` absent) → JSON-RPC `-32602` "agent_id required", no insert.
-- AC-4.9.4: Unsupported `payload_version` (e.g. `"2.0.0"` when server pins `"1.0.0"`) → JSON-RPC `-32602` "unsupported payload_version", no insert.
+- AC-4.9.4: Unsupported `payload_version` (e.g. `"2.0.0"` when server pins `"1.0.0"`) → JSON-RPC `-32602` "unsupported payload_version", no insert. **Consequence for contract evolution:** a version bump is breaking by construction — a producer that bumps to advertise an additive field is rejected outright until both sides deploy together. Additive changes stay on `1.0.0` and ride `additionalProperties: true`; reserve the bump for changes that genuinely break existing readers.
 - AC-4.9.5: Wrong-type field (`score_components` not an object; `per_task` not an array) → JSON-RPC `-32602`, no insert.
 - AC-4.9.6: Empty `run_id` / `benchmark_id` / `agent_id` → JSON-RPC `-32602` "<field> must be non-empty", no insert.
 - AC-4.9.7: Non-RFC3339 `ts` (e.g. `"not-a-date"`) → JSON-RPC `-32602` "ts not RFC3339", no insert.
 - AC-4.9.8: DB lock / I/O error during INSERT → JSON-RPC `-32000` (Runtime), Maestro will retry (transient).
+- AC-4.9.9: `score` outside `[0, 1]` (a percent such as `66.67`, a negative, NaN, or infinity) → JSON-RPC `-32602` naming the canonical unit, no insert. `0.0` and `1.0` are valid.
+- AC-4.9.10: `score_semantics` present but not an object → JSON-RPC `-32602`, no insert. Absent or `null` → accepted (legacy producer). Unknown keys inside the block → accepted.
+- AC-4.9.11: A run with `score_semantics.quality_signal: false` is inserted (`{status: "created"}`) but `get_benchmark_score` does not return it; if an older graded run exists for the same `(agent_id, benchmark_id)`, that older score is returned instead of `None`.
 
-**Tests:** `arbiter-mcp/tests/report_benchmark_test.rs` (16 cases: happy, duplicate, concurrent_duplicate, missing_required, unsupported_payload_version, score_components_non_object_rejected, per_task_non_array_rejected, missing_score_components_rejected, missing_per_task_rejected, empty IDs × 3, bad ts × 2, validation/runtime classification × 2). Contract test in `arbiter-mcp/tests/contract_test.rs` validates request/response shapes against the shared JSONSchema.
+**Tests:** `arbiter-mcp/tests/report_benchmark_test.rs` (25 cases: happy, duplicate, concurrent_duplicate, missing_required, unsupported_payload_version, score_components_non_object_rejected, per_task_non_array_rejected, missing_score_components_rejected, missing_per_task_rejected, empty IDs × 3, bad ts × 2, validation/runtime classification × 2, score unit × 3, score_semantics × 6). Contract test in `arbiter-mcp/tests/contract_test.rs` validates request/response shapes against the shared JSONSchema, including the `[0,1]` bound on `score` and the optional `score_semantics` block. Read-side selection is covered in `arbiter-mcp/src/db.rs` tests (`get_benchmark_score_*`), and mirrored offline by `scripts/check_routable_gate.py`.
 
 ---
 

@@ -53,7 +53,9 @@ fn benchmark_id_for(task_type: &TaskType) -> Option<&'static str> {
 /// `RouteResult` in scope at the re-rank site). Re-sorts by adjusted confidence.
 ///
 /// No-op when `weight <= 0`, the task type has no mapped benchmark, or the agent
-/// has no score for it (left untouched). Confidence stays clamped to `[0, 1]`.
+/// has no *usable* score for it (left untouched) — a run may exist but be
+/// withheld for non-quality `score_semantics` or an out-of-range unit, see
+/// [`Database::get_benchmark_score`]. Confidence stays clamped to `[0, 1]`.
 ///
 /// SCOPE (R-07 decision C, 2026-07-02): this is intended as a **tiebreaker**,
 /// not a DT override. The delta is additive and the list is then re-sorted, so a
@@ -862,6 +864,7 @@ mod tests {
             per_task: "[]",
             per_task_total_count: 0,
             per_task_truncated: 0,
+            score_semantics: None,
         })
         .unwrap();
     }
@@ -1029,6 +1032,7 @@ mod tests {
                 per_task: "[]",
                 per_task_total_count: 0,
                 per_task_truncated: 0,
+                score_semantics: None,
             }
         };
         db.insert_benchmark_run(&row("r1", "zzz@m", r#"{"rank_score":0.775}"#))
@@ -1078,6 +1082,7 @@ mod tests {
                 per_task: "[]",
                 per_task_total_count: 0,
                 per_task_truncated: 0,
+                score_semantics: None,
             }
         };
         db.insert_benchmark_run(&row(

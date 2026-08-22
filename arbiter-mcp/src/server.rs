@@ -158,10 +158,18 @@ fn tool_schemas() -> Value {
                         "benchmark_id": { "type": "string", "minLength": 1 },
                         "agent_id": { "type": "string", "minLength": 1 },
                         "ts": { "type": "string", "format": "date-time" },
-                        "score": { "type": "number" },
+                        "score": {
+                            "type": "number", "minimum": 0, "maximum": 1,
+                            "description": "Fraction in [0,1] (e.g. a critical pass rate), NOT a percent in [0,100]."
+                        },
                         "score_components": {
                             "type": "object",
                             "additionalProperties": { "type": "number" }
+                        },
+                        "score_semantics": {
+                            "type": ["object", "null"],
+                            "additionalProperties": true,
+                            "description": "ATP score contract v1: what the number means. Optional; absent = legacy producer. Only schema_version 1 with quality_signal true feeds the routing tiebreaker."
                         },
                         "total_tokens": { "type": ["integer", "null"], "minimum": 0 },
                         "total_cost_usd": { "type": ["number", "null"], "minimum": 0 },

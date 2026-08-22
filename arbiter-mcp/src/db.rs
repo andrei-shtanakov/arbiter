@@ -129,6 +129,9 @@ pub struct BenchmarkRunInput<'a> {
     pub per_task: &'a str,
     pub per_task_total_count: i64,
     pub per_task_truncated: i64,
+    /// ATP score contract v1 `score_semantics`, verbatim JSON. `None` is a
+    /// legacy producer that said nothing about what `score` means.
+    pub score_semantics: Option<&'a str>,
 }
 
 // ---------------------------------------------------------------------------
@@ -188,11 +191,12 @@ impl Database {
         Ok(Self { conn })
     }
 
-    /// Run schema migrations up to the current version (v2).
+    /// Run schema migrations up to the current version (v3).
     ///
     /// v1 creates all 5 tables and 7 indices (idempotent: `CREATE TABLE IF
-    /// NOT EXISTS`). v2 adds the nullable `decisions.shadow_json` column;
-    /// `ALTER TABLE` is not idempotent in SQLite, so it is gated on the
+    /// NOT EXISTS`). v2 adds the nullable `decisions.shadow_json` column and
+    /// v3 the nullable `benchmark_runs.score_semantics` column;
+    /// `ALTER TABLE` is not idempotent in SQLite, so each is gated on the
     /// recorded schema version and applied in one transaction with its
     /// version bump.
     pub fn migrate(&self) -> Result<()> {
@@ -228,6 +232,17 @@ impl Database {
                 )
                 .context("Failed to apply schema v2")?;
             debug!("schema v2 applied");
+        }
+        if version < 3 {
+            self.conn
+                .execute_batch(
+                    "BEGIN;
+                     ALTER TABLE benchmark_runs ADD COLUMN score_semantics TEXT;
+                     INSERT OR IGNORE INTO schema_version (version) VALUES (3);
+                     COMMIT;",
+                )
+                .context("Failed to apply schema v3")?;
+            debug!("schema v3 applied");
         }
 
         Ok(())
@@ -705,9 +720,11 @@ impl Database {
     ///
     /// `benchmark_runs` is deliberately NOT purged here. It is a reference
     /// dataset rather than a log: [`Self::get_benchmark_score`] reads the
-    /// latest run per `(agent_id, benchmark_id)`, so deleting by age could
-    /// erase an agent's only run for a benchmark and silently switch off its
-    /// R-07 re-rank. A keep-latest-N policy is tracked separately
+    /// latest *usable* run per `(agent_id, benchmark_id)`, so deleting by age
+    /// could erase an agent's only usable run for a benchmark and silently
+    /// switch off its R-07 re-rank. Since usable runs can sit behind any number
+    /// of withheld ones (inbox #82), a future retention policy must count
+    /// usable runs rather than rows. Tracked separately
     /// (`@id:benchmark-runs-retention`; ownership settled by inbox #78).
     pub fn purge_older_than(&self, days: u32) -> Result<usize> {
         let threshold = format!("-{days} days");
@@ -819,8 +836,8 @@ impl Database {
                         run_id, payload_version, benchmark_id, agent_id, ts,
                         score, score_components, total_tokens, total_cost_usd,
                         duration_seconds, per_task, per_task_total_count,
-                        per_task_truncated
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                        per_task_truncated, score_semantics
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                      ON CONFLICT(run_id) DO NOTHING",
                     params![
                         input.run_id,
@@ -836,6 +853,7 @@ impl Database {
                         input.per_task,
                         input.per_task_total_count,
                         input.per_task_truncated,
+                        input.score_semantics,
                     ],
                 )
                 .context("Failed to insert benchmark_run")?;
@@ -863,36 +881,140 @@ impl Database {
         Ok(count)
     }
 
-    /// Latest benchmark score for an agent on a specific benchmark, clamped to
+    /// The `score_semantics.schema_version` this consumer knows how to read.
+    const SCORE_SEMANTICS_SCHEMA_VERSION: i64 = 1;
+
+    /// Whether a run's `score_semantics` block permits using its score for routing.
+    ///
+    /// ATP's score contract v1 (inbox #82) states that on the benchmark plane a
+    /// task scores full marks for *returning a completed response*, not for the
+    /// response being good, and that `quality_signal` is the single field to
+    /// branch on. Feeding a completion rate into a quality-shaped tiebreaker
+    /// would compare it with a graded score as if the two were the same
+    /// quantity, so anything but an explicitly graded run is withheld.
+    ///
+    /// `None` (no block at all) is a legacy producer and stays usable: every
+    /// row written before the contract existed has no block, and treating those
+    /// as non-quality would silently switch off R-07 for the whole existing
+    /// dataset. A block that is present is held to its own promise — malformed,
+    /// an unreadable `schema_version`, or `quality_signal != true` all withhold.
+    fn semantics_permit_routing(raw: Option<&str>) -> bool {
+        let Some(raw) = raw else {
+            return true; // legacy producer, semantics unknown
+        };
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(raw) else {
+            return false;
+        };
+        let version = parsed
+            .get("schema_version")
+            .and_then(serde_json::Value::as_i64);
+        if version != Some(Self::SCORE_SEMANTICS_SCHEMA_VERSION) {
+            return false;
+        }
+        parsed
+            .get("quality_signal")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    }
+
+    /// Project one benchmark row onto its routing score, or `None` if unusable.
+    ///
+    /// Prefers the routing-only `rank_score` tiebreaker (R-07) when present and
+    /// numeric; falls back to the scalar critical_pass_rate. NULL, malformed
+    /// JSON, or a missing key all fall back with no panic.
+    ///
+    /// The canonical unit is a fraction in `[0, 1]`. A value above 1 is a unit
+    /// error (a percent), and is rejected rather than clamped: the old
+    /// `.clamp(0.0, 1.0)` turned every percent above 1% into an
+    /// indistinguishable perfect `1.0`, which is corrupted data wearing a valid
+    /// value's clothes (inbox #81). Ingest rejects these now, so this only
+    /// catches rows written before that check existed. The *lower* clamp stays:
+    /// `rank_score = pass_rate + (t - 1)/(n + 1)` is legitimately a hair below
+    /// zero for a zero-pass-rate run, and that is a real value, not a unit error.
+    fn routing_score_of(score: f64, components: Option<&str>) -> Option<f64> {
+        let value = components
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+            .and_then(|v| v.get("rank_score").and_then(serde_json::Value::as_f64))
+            .unwrap_or(score);
+        if !value.is_finite() || value > 1.0 {
+            return None;
+        }
+        Some(value.max(0.0))
+    }
+
+    /// Latest *usable* benchmark score for an agent on a specific benchmark, in
     /// `[0, 1]`.
     ///
     /// `task_type`-scoped via `benchmark_id` (R-07): a score MUST NOT leak across
-    /// benchmarks, so the caller derives `benchmark_id` from the task type. Returns
-    /// `None` when the agent has no run for that benchmark. Uses
+    /// benchmarks, so the caller derives `benchmark_id` from the task type. Uses
     /// `idx_benchmark_runs_agent_bench_ts`.
+    ///
+    /// Walks runs newest-first and returns the first one that is both
+    /// interpretable ([`Self::semantics_permit_routing`]) and in range
+    /// ([`Self::routing_score_of`]); `None` when the agent has no such run.
+    /// Skipping rather than reading only the newest row matters because an
+    /// ungraded run published after a graded one would otherwise mask it —
+    /// withholding the newest score would read as "this agent has no benchmark"
+    /// while a perfectly good older measurement sat one row down.
+    ///
+    /// The `run_id DESC` secondary sort makes "latest" deterministic when two
+    /// runs share a `ts`, matching `scripts/check_routable_gate.py`.
     pub fn get_benchmark_score(&self, agent_id: &str, benchmark_id: &str) -> Result<Option<f64>> {
-        let row = self
-            .conn
-            .query_row(
-                "SELECT score, score_components FROM benchmark_runs \
-                 WHERE agent_id = ?1 AND benchmark_id = ?2 \
-                 ORDER BY ts DESC LIMIT 1",
-                params![agent_id, benchmark_id],
-                |r| Ok((r.get::<_, f64>(0)?, r.get::<_, Option<String>>(1)?)),
-            )
-            .optional()
-            .context("Failed to read benchmark score")?;
-        // Prefer the routing-only `rank_score` tiebreaker (R-07) when present and
-        // numeric; fall back to the scalar critical_pass_rate. NULL, malformed
-        // JSON, or a missing key all fall back with no panic.
-        Ok(row.map(|(score, components)| {
-            components
-                .as_deref()
-                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-                .and_then(|v| v.get("rank_score").and_then(serde_json::Value::as_f64))
-                .unwrap_or(score)
-                .clamp(0.0, 1.0)
-        }))
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT score, score_components, score_semantics FROM benchmark_runs \
+             WHERE agent_id = ?1 AND benchmark_id = ?2 \
+             ORDER BY ts DESC, run_id DESC",
+        )?;
+        // Walked as a cursor, not collected: the whole point of the walk is to
+        // stop at the first usable run, and the usual case stops on row 1.
+        let rows = stmt.query_map(params![agent_id, benchmark_id], |r| {
+            Ok((
+                r.get::<_, f64>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+
+        let mut skipped = 0usize;
+        for row in rows {
+            let (score, components, semantics) = row.context("Failed to read benchmark score")?;
+            if !Self::semantics_permit_routing(semantics.as_deref()) {
+                skipped += 1;
+                continue;
+            }
+            match Self::routing_score_of(score, components.as_deref()) {
+                Some(value) => {
+                    if skipped > 0 {
+                        tracing::debug!(
+                            agent_id,
+                            benchmark_id,
+                            skipped,
+                            "benchmark score: skipped newer unusable run(s)"
+                        );
+                    }
+                    return Ok(Some(value));
+                }
+                None => {
+                    tracing::warn!(
+                        agent_id,
+                        benchmark_id,
+                        score,
+                        "benchmark score out of the canonical [0,1] range \
+                         (a percent?) — run ignored for routing"
+                    );
+                    skipped += 1;
+                }
+            }
+        }
+        if skipped > 0 {
+            tracing::debug!(
+                agent_id,
+                benchmark_id,
+                skipped,
+                "benchmark score withheld: no usable run"
+            );
+        }
+        Ok(None)
     }
 
     /// Get a reference to the underlying connection (for testing).
@@ -1074,26 +1196,39 @@ mod tests {
 
     // -- Schema migration --
 
+    fn column_names(db: &Database, table: &str) -> Vec<String> {
+        db.conn
+            .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap()
+    }
+
     #[test]
     fn migrate_v2_adds_shadow_json_and_is_idempotent() {
         let db = setup_db(); // runs migrate() once
         db.migrate().unwrap(); // second run must not fail (ALTER is version-gated)
 
-        let cols: Vec<String> = db
-            .conn
-            .prepare("SELECT name FROM pragma_table_info('decisions')")
-            .unwrap()
-            .query_map([], |r| r.get(0))
-            .unwrap()
-            .collect::<std::result::Result<_, _>>()
-            .unwrap();
-        assert!(cols.contains(&"shadow_json".to_string()));
+        assert!(column_names(&db, "decisions").contains(&"shadow_json".to_string()));
 
         let version: i32 = db
             .conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3, "current schema version");
+    }
+
+    #[test]
+    fn migrate_v3_adds_score_semantics_and_is_idempotent() {
+        let db = setup_db();
+        // Two extra runs: the ALTER is version-gated, so re-running must be a
+        // no-op rather than "duplicate column name" (inbox #82).
+        db.migrate().unwrap();
+        db.migrate().unwrap();
+
+        assert!(column_names(&db, "benchmark_runs").contains(&"score_semantics".to_string()));
     }
 
     #[test]
@@ -1250,6 +1385,7 @@ mod tests {
                 per_task: "[]",
                 per_task_total_count: 0,
                 per_task_truncated: 0,
+                score_semantics: None,
             }
         };
         db.insert_benchmark_run(&mk("r1", "code-review", 0.40, "2026-06-10T00:00:00Z"))
@@ -1278,6 +1414,226 @@ mod tests {
         );
     }
 
+    /// Row builder for the unit/semantics tests (inbox #81, #82).
+    fn bench_row<'a>(
+        run_id: &'a str,
+        ts: &'a str,
+        score: f64,
+        components: &'a str,
+        semantics: Option<&'a str>,
+    ) -> BenchmarkRunInput<'a> {
+        BenchmarkRunInput {
+            run_id,
+            payload_version: "1.0.0",
+            benchmark_id: "code-review",
+            agent_id: "claude_code@claude-sonnet-4-6",
+            ts,
+            score,
+            score_components: components,
+            total_tokens: None,
+            total_cost_usd: None,
+            duration_seconds: 0.0,
+            per_task: "[]",
+            per_task_total_count: 0,
+            per_task_truncated: 0,
+            score_semantics: semantics,
+        }
+    }
+
+    fn latest(db: &Database) -> Option<f64> {
+        db.get_benchmark_score("claude_code@claude-sonnet-4-6", "code-review")
+            .unwrap()
+    }
+
+    const GRADED: &str =
+        r#"{"schema_version":1,"kind":"aggregated_evaluation","quality_signal":true}"#;
+    const UNGRADED: &str =
+        r#"{"schema_version":1,"kind":"completion_rate","quality_signal":false}"#;
+
+    // -- inbox #81: score is a fraction, never a percent --
+
+    #[test]
+    fn get_benchmark_score_rejects_a_percent_instead_of_clamping_it() {
+        // The whole defect in one assertion: a percent used to arrive as a
+        // perfect 1.0, indistinguishable from a genuinely perfect run. Ingest
+        // rejects these now, so this row can only exist from before the check —
+        // it must be ignored, not silently promoted to the maximum.
+        let db = setup_db();
+        db.insert_benchmark_run(&bench_row("r1", "2026-08-22T00:00:00Z", 66.67, "{}", None))
+            .unwrap();
+        assert_eq!(latest(&db), None, "a percent is a unit error, not a 1.0");
+    }
+
+    #[test]
+    fn get_benchmark_score_rejects_an_out_of_range_rank_score() {
+        let db = setup_db();
+        db.insert_benchmark_run(&bench_row(
+            "r1",
+            "2026-08-22T00:00:00Z",
+            0.8,
+            r#"{"rank_score":80.0}"#,
+            None,
+        ))
+        .unwrap();
+        assert_eq!(latest(&db), None);
+    }
+
+    #[test]
+    fn get_benchmark_score_keeps_the_legitimate_lower_clamp() {
+        // rank_score = pass_rate + (t - 1)/(n + 1) dips just below zero for a
+        // zero-pass-rate run. That is a real value, not a unit error, so the
+        // low clamp stays while the high one became a rejection.
+        let db = setup_db();
+        db.insert_benchmark_run(&bench_row(
+            "r1",
+            "2026-08-22T00:00:00Z",
+            0.0,
+            r#"{"rank_score":-0.0625}"#,
+            None,
+        ))
+        .unwrap();
+        assert_eq!(latest(&db), Some(0.0));
+    }
+
+    #[test]
+    fn get_benchmark_score_falls_back_to_an_older_in_range_run() {
+        let db = setup_db();
+        db.insert_benchmark_run(&bench_row("old", "2026-08-01T00:00:00Z", 0.75, "{}", None))
+            .unwrap();
+        db.insert_benchmark_run(&bench_row("new", "2026-08-22T00:00:00Z", 66.67, "{}", None))
+            .unwrap();
+        assert_eq!(
+            latest(&db),
+            Some(0.75),
+            "a corrupt newest run must not mask a usable older one"
+        );
+    }
+
+    // -- inbox #82: quality_signal gates the tiebreaker --
+
+    #[test]
+    fn get_benchmark_score_uses_a_graded_run() {
+        let db = setup_db();
+        db.insert_benchmark_run(&bench_row(
+            "r1",
+            "2026-08-22T00:00:00Z",
+            0.8,
+            "{}",
+            Some(GRADED),
+        ))
+        .unwrap();
+        assert_eq!(latest(&db), Some(0.8));
+    }
+
+    #[test]
+    fn get_benchmark_score_withholds_a_completion_rate_run() {
+        // ATP scores a task full marks for *returning* a completed response.
+        // Comparing that with a graded score as if they were the same quantity
+        // is the defect; withholding it is the fix.
+        let db = setup_db();
+        db.insert_benchmark_run(&bench_row(
+            "r1",
+            "2026-08-22T00:00:00Z",
+            0.8,
+            "{}",
+            Some(UNGRADED),
+        ))
+        .unwrap();
+        assert_eq!(latest(&db), None);
+    }
+
+    #[test]
+    fn get_benchmark_score_withholds_an_uninterpretable_semantics_block() {
+        for block in [
+            r#"{"schema_version":2,"quality_signal":true}"#, // version we cannot read
+            r#"{"quality_signal":true}"#,                    // no version at all
+            r#"{"schema_version":1}"#,                       // no signal to branch on
+            "not json",
+        ] {
+            let db = setup_db();
+            db.insert_benchmark_run(&bench_row(
+                "r1",
+                "2026-08-22T00:00:00Z",
+                0.8,
+                "{}",
+                Some(block),
+            ))
+            .unwrap();
+            assert_eq!(latest(&db), None, "block {block:?} must not route");
+        }
+    }
+
+    #[test]
+    fn get_benchmark_score_treats_an_absent_semantics_block_as_legacy() {
+        // Every row written before the contract existed has no block. Reading
+        // those as non-quality would switch off R-07 for the whole dataset.
+        let db = setup_db();
+        db.insert_benchmark_run(&bench_row("r1", "2026-08-22T00:00:00Z", 0.8, "{}", None))
+            .unwrap();
+        assert_eq!(latest(&db), Some(0.8));
+    }
+
+    #[test]
+    fn get_benchmark_score_skips_an_ungraded_run_masking_a_graded_one() {
+        // The reason for walking runs instead of reading only the newest: an
+        // ungraded run published later would otherwise read as "this agent has
+        // no benchmark" while a good measurement sat one row down.
+        let db = setup_db();
+        db.insert_benchmark_run(&bench_row(
+            "graded",
+            "2026-08-01T00:00:00Z",
+            0.75,
+            "{}",
+            Some(GRADED),
+        ))
+        .unwrap();
+        db.insert_benchmark_run(&bench_row(
+            "ungraded",
+            "2026-08-22T00:00:00Z",
+            0.95,
+            "{}",
+            Some(UNGRADED),
+        ))
+        .unwrap();
+        assert_eq!(latest(&db), Some(0.75));
+    }
+
+    #[test]
+    fn get_benchmark_score_breaks_a_ts_tie_by_run_id_descending() {
+        // Deterministic "latest" when two runs share a ts, matching
+        // scripts/check_routable_gate.py's ORDER BY ts DESC, run_id DESC.
+        let db = setup_db();
+        db.insert_benchmark_run(&bench_row("aaa", "2026-08-22T00:00:00Z", 0.10, "{}", None))
+            .unwrap();
+        db.insert_benchmark_run(&bench_row("zzz", "2026-08-22T00:00:00Z", 0.90, "{}", None))
+            .unwrap();
+        assert_eq!(latest(&db), Some(0.90));
+    }
+
+    #[test]
+    fn insert_benchmark_run_persists_score_semantics_verbatim() {
+        // Stored, not projected: unknown keys are the producer's to add.
+        let db = setup_db();
+        let block = r#"{"schema_version":1,"quality_signal":true,"future_key":"ignored"}"#;
+        db.insert_benchmark_run(&bench_row(
+            "r1",
+            "2026-08-22T00:00:00Z",
+            0.8,
+            "{}",
+            Some(block),
+        ))
+        .unwrap();
+        let stored: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT score_semantics FROM benchmark_runs WHERE run_id = 'r1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some(block));
+    }
+
     #[test]
     fn get_benchmark_score_prefers_rank_score_over_scalar() {
         let db = setup_db();
@@ -1295,6 +1651,7 @@ mod tests {
             per_task: "[]",
             per_task_total_count: 0,
             per_task_truncated: 0,
+            score_semantics: None,
         };
         db.insert_benchmark_run(&row("r1", r#"{"rank_score":0.63}"#, 0.80))
             .unwrap();
@@ -1324,6 +1681,7 @@ mod tests {
                 per_task: "[]",
                 per_task_total_count: 0,
                 per_task_truncated: 0,
+                score_semantics: None,
             }
         };
         // r1: no rank_score key -> falls back to scalar (earlier ts)
@@ -1897,6 +2255,7 @@ mod tests {
             per_task: "[]",
             per_task_total_count: 0,
             per_task_truncated: 0,
+            score_semantics: None,
         })
         .unwrap();
         db.conn
