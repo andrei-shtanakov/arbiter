@@ -223,16 +223,19 @@ def _fmt_effective(value: float | None) -> str:
     return "withheld (not usable for routing)" if value is None else f"{value:.3f}"
 
 
-def _has_score_semantics(conn: sqlite3.Connection) -> bool:
-    """Колонка добавлена миграцией v3; старая БД её ещё не имеет."""
+def _semantics_column(conn: sqlite3.Connection) -> str:
+    """Имя колонки для SELECT: `score_semantics` либо литерал `NULL`.
+
+    Колонку добавляет миграция v3, и БД, снятая до неё, её не имеет.
+    Резолвится ОДИН раз на запуск команды и передаётся вниз параметром
+    `semantics_col`: схема за время работы команды не меняется, а вызов на
+    каждую строку превращал бы `PRAGMA table_info` в поштучный round-trip.
+    """
     cols = conn.execute(
         "SELECT name FROM pragma_table_info('benchmark_runs')"
     ).fetchall()
-    return any(c[0] == "score_semantics" for c in cols)
-
-
-def _semantics_column(conn: sqlite3.Connection) -> str:
-    return "score_semantics" if _has_score_semantics(conn) else "NULL"
+    has = any(c[0] == "score_semantics" for c in cols)
+    return "score_semantics" if has else "NULL"
 
 
 def _parse_rfc3339(value: str) -> datetime | None:
@@ -278,6 +281,7 @@ def run_verify(db_path: Path, catalog_path: Path, eps: float) -> int:
 def _verify_agents(
     conn: sqlite3.Connection, catalog: dict[str, dict[str, Any]], eps: float
 ) -> int:
+    semantics_col = _semantics_column(conn)
     failures = 0
     for aid, entry in catalog.items():
         if entry.get("routable") is not True:
@@ -291,13 +295,17 @@ def _verify_agents(
                 print(f"VERIFY FAIL {aid}: invalid declaration: {p}")
             failures += 1
             continue
-        if not _verify_one(conn, aid, entry["bench"], eps):
+        if not _verify_one(conn, aid, entry["bench"], eps, semantics_col):
             failures += 1
     return 1 if failures else 0
 
 
 def _verify_one(
-    conn: sqlite3.Connection, aid: str, bench: dict[str, Any], eps: float
+    conn: sqlite3.Connection,
+    aid: str,
+    bench: dict[str, Any],
+    eps: float,
+    semantics_col: str,
 ) -> bool:
     benchmark = bench["benchmark"]
     scores: list[float] = []
@@ -306,7 +314,7 @@ def _verify_one(
     for rid in bench["run_ids"]:
         row = conn.execute(
             "SELECT agent_id, benchmark_id, ts, score, score_components,"
-            f" {_semantics_column(conn)}"
+            f" {semantics_col}"
             " FROM benchmark_runs WHERE run_id = ?",
             (rid,),
         ).fetchone()
@@ -363,7 +371,7 @@ def _verify_one(
         )
         return False
 
-    runtime_score = _latest_usable_score(conn, aid, benchmark)
+    runtime_score = _latest_usable_score(conn, aid, benchmark, semantics_col)
     print(
         f"VERIFY OK {aid}: mean {mean:.3f} matches claimed {claimed} (eps {eps});"
         f" runtime-effective (latest usable run): {_fmt_effective(runtime_score)}"
@@ -372,13 +380,13 @@ def _verify_one(
 
 
 def _latest_usable_score(
-    conn: sqlite3.Connection, aid: str, benchmark: str
+    conn: sqlite3.Connection, aid: str, benchmark: str, semantics_col: str
 ) -> float | None:
     """Что реально вернёт `get_benchmark_score`: первый пригодный прогон,
     считая от новейшего, а не просто новейший (`db.rs`)."""
     rows = conn.execute(
         "SELECT score, score_components,"
-        f" {_semantics_column(conn)}"
+        f" {semantics_col}"
         " FROM benchmark_runs WHERE agent_id = ? AND benchmark_id = ?"
         " ORDER BY ts DESC, run_id DESC",
         (aid, benchmark),
@@ -405,9 +413,9 @@ _RUNS_SQL = (
 
 
 def _agent_runs(
-    conn: sqlite3.Connection, aid: str, benchmark: str
+    conn: sqlite3.Connection, aid: str, benchmark: str, semantics_col: str
 ) -> list[tuple[Any, ...]]:
-    sql = _RUNS_SQL.format(semantics=_semantics_column(conn))
+    sql = _RUNS_SQL.format(semantics=semantics_col)
     rows = conn.execute(sql, (aid, benchmark)).fetchall()
     if not rows:
         raise GateInputError(f"no benchmark_runs rows for ({aid}, {benchmark})")
@@ -530,8 +538,9 @@ def run_ab(db_path: Path, benchmark: str, agent_a: str, agent_b: str) -> int:
             ).fetchone()
             if has_table is None:
                 raise GateInputError(f"db {db_path} has no benchmark_runs table")
-            runs_a = _agent_runs(conn, agent_a, benchmark)
-            runs_b = _agent_runs(conn, agent_b, benchmark)
+            semantics_col = _semantics_column(conn)
+            runs_a = _agent_runs(conn, agent_a, benchmark, semantics_col)
+            runs_b = _agent_runs(conn, agent_b, benchmark, semantics_col)
         except sqlite3.DatabaseError as exc:
             raise GateInputError(
                 f"unreadable or incompatible db {db_path}: {exc}"

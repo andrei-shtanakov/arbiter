@@ -965,19 +965,19 @@ impl Database {
              WHERE agent_id = ?1 AND benchmark_id = ?2 \
              ORDER BY ts DESC, run_id DESC",
         )?;
-        let rows = stmt
-            .query_map(params![agent_id, benchmark_id], |r| {
-                Ok((
-                    r.get::<_, f64>(0)?,
-                    r.get::<_, Option<String>>(1)?,
-                    r.get::<_, Option<String>>(2)?,
-                ))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .context("Failed to read benchmark score")?;
+        // Walked as a cursor, not collected: the whole point of the walk is to
+        // stop at the first usable run, and the usual case stops on row 1.
+        let rows = stmt.query_map(params![agent_id, benchmark_id], |r| {
+            Ok((
+                r.get::<_, f64>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        })?;
 
         let mut skipped = 0usize;
-        for (score, components, semantics) in rows {
+        for row in rows {
+            let (score, components, semantics) = row.context("Failed to read benchmark score")?;
             if !Self::semantics_permit_routing(semantics.as_deref()) {
                 skipped += 1;
                 continue;
