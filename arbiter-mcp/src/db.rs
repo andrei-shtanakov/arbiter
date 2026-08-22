@@ -720,9 +720,11 @@ impl Database {
     ///
     /// `benchmark_runs` is deliberately NOT purged here. It is a reference
     /// dataset rather than a log: [`Self::get_benchmark_score`] reads the
-    /// latest run per `(agent_id, benchmark_id)`, so deleting by age could
-    /// erase an agent's only run for a benchmark and silently switch off its
-    /// R-07 re-rank. A keep-latest-N policy is tracked separately
+    /// latest *usable* run per `(agent_id, benchmark_id)`, so deleting by age
+    /// could erase an agent's only usable run for a benchmark and silently
+    /// switch off its R-07 re-rank. Since usable runs can sit behind any number
+    /// of withheld ones (inbox #82), a future retention policy must count
+    /// usable runs rather than rows. Tracked separately
     /// (`@id:benchmark-runs-retention`; ownership settled by inbox #78).
     pub fn purge_older_than(&self, days: u32) -> Result<usize> {
         let threshold = format!("-{days} days");
