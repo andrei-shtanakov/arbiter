@@ -862,6 +862,7 @@ mod tests {
             per_task: "[]",
             per_task_total_count: 0,
             per_task_truncated: 0,
+            score_semantics: None,
         })
         .unwrap();
     }
@@ -1029,6 +1030,7 @@ mod tests {
                 per_task: "[]",
                 per_task_total_count: 0,
                 per_task_truncated: 0,
+                score_semantics: None,
             }
         };
         db.insert_benchmark_run(&row("r1", "zzz@m", r#"{"rank_score":0.775}"#))
@@ -1078,6 +1080,7 @@ mod tests {
                 per_task: "[]",
                 per_task_total_count: 0,
                 per_task_truncated: 0,
+                score_semantics: None,
             }
         };
         db.insert_benchmark_run(&row(

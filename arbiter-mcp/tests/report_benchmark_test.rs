@@ -304,3 +304,152 @@ fn good_ts_rfc3339_accepted() {
     let result = report_benchmark::execute(&payload, &db).expect("should succeed");
     assert_eq!(result["status"], "created");
 }
+
+// ---------------------------------------------------------------------------
+// score unit: a fraction in [0,1], never a percent (inbox #81)
+// ---------------------------------------------------------------------------
+
+/// The field had two producers writing different quantities into it — a pass
+/// rate in [0,1] and ATP's `total_score` in percent — and the consumer clamped,
+/// so every percent above 1% arrived as an indistinguishable perfect `1.0`.
+/// Rejecting at ingest is what makes the unit checkable instead of assumed.
+#[test]
+fn percent_score_is_rejected_as_a_validation_error() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-percent");
+    payload["score"] = json!(66.66666666666667);
+
+    let err = report_benchmark::execute(&payload, &db).expect_err("must reject a percent");
+    assert!(matches!(err, ReportBenchmarkError::Validation(_)));
+    assert_eq!(
+        err.jsonrpc_code(),
+        -32602,
+        "a unit error is a contract break the producer must fix, not a retryable one"
+    );
+    assert!(
+        err.to_string().contains("fraction in [0,1]"),
+        "the message must name the canonical unit: {err}"
+    );
+    assert_eq!(db.count_benchmark_runs("run-percent").unwrap(), 0);
+}
+
+#[test]
+fn score_outside_the_unit_range_is_rejected() {
+    for bad in [1.0000001_f64, -0.1, f64::NAN, f64::INFINITY] {
+        let db = fresh_db();
+        let mut payload = valid_payload("run-bad");
+        payload["score"] = json!(bad);
+        let err =
+            report_benchmark::execute(&payload, &db).expect_err("must reject score outside [0,1]");
+        assert!(matches!(err, ReportBenchmarkError::Validation(_)), "{bad}");
+    }
+}
+
+#[test]
+fn score_at_the_range_boundaries_is_accepted() {
+    for (run_id, good) in [("run-zero", 0.0), ("run-one", 1.0)] {
+        let db = fresh_db();
+        let mut payload = valid_payload(run_id);
+        payload["score"] = json!(good);
+        let result = report_benchmark::execute(&payload, &db).expect("boundary is valid");
+        assert_eq!(result["status"], "created");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// score_semantics: accepted, stored, honoured (inbox #82)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn score_semantics_is_optional() {
+    // Every producer predating ATP's contract omits it, and the field must not
+    // become required by being read.
+    let db = fresh_db();
+    let payload = valid_payload("run-legacy");
+    assert!(payload.get("score_semantics").is_none());
+    let result = report_benchmark::execute(&payload, &db).expect("execute");
+    assert_eq!(result["status"], "created");
+}
+
+#[test]
+fn graded_run_is_stored_and_feeds_routing() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-graded");
+    payload["score_semantics"] = json!({
+        "schema_version": 1,
+        "kind": "aggregated_evaluation",
+        "quality_signal": true,
+        "coverage": {"tasks_evaluated": 1, "tasks_completion_only": 0}
+    });
+    report_benchmark::execute(&payload, &db).expect("execute");
+    assert_eq!(
+        db.get_benchmark_score("claude_code@claude-sonnet-4-6", "swe-mini")
+            .unwrap(),
+        Some(0.85)
+    );
+}
+
+/// The ask in one assertion: a completion rate is stored (the run happened and
+/// stays inspectable) but never compared against a graded score as if the two
+/// were the same quantity.
+#[test]
+fn completion_rate_run_is_stored_but_withheld_from_routing() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-completion");
+    payload["score_semantics"] = json!({
+        "schema_version": 1,
+        "kind": "completion_rate",
+        "quality_signal": false
+    });
+    let result = report_benchmark::execute(&payload, &db).expect("execute");
+
+    assert_eq!(
+        result["status"], "created",
+        "an ungraded run is still recorded"
+    );
+    assert_eq!(db.count_benchmark_runs("run-completion").unwrap(), 1);
+    assert_eq!(
+        db.get_benchmark_score("claude_code@claude-sonnet-4-6", "swe-mini")
+            .unwrap(),
+        None,
+        "completion is not quality — it must not act as a tiebreaker"
+    );
+}
+
+#[test]
+fn unknown_keys_inside_score_semantics_are_accepted() {
+    // The contract says consumers must ignore unknown keys; that is what keeps
+    // additions to the block additive rather than a lockstep version bump.
+    let db = fresh_db();
+    let mut payload = valid_payload("run-forward");
+    payload["score_semantics"] = json!({
+        "schema_version": 1,
+        "quality_signal": true,
+        "some_future_key": "consumers must ignore this"
+    });
+    let result = report_benchmark::execute(&payload, &db).expect("execute");
+    assert_eq!(result["status"], "created");
+    assert_eq!(
+        db.get_benchmark_score("claude_code@claude-sonnet-4-6", "swe-mini")
+            .unwrap(),
+        Some(0.85)
+    );
+}
+
+#[test]
+fn non_object_score_semantics_is_a_validation_error() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-bad-semantics");
+    payload["score_semantics"] = json!("aggregated_evaluation");
+    let err = report_benchmark::execute(&payload, &db).expect_err("must reject");
+    assert_eq!(err.jsonrpc_code(), -32602);
+}
+
+#[test]
+fn null_score_semantics_is_treated_as_absent() {
+    let db = fresh_db();
+    let mut payload = valid_payload("run-null-semantics");
+    payload["score_semantics"] = json!(null);
+    let result = report_benchmark::execute(&payload, &db).expect("execute");
+    assert_eq!(result["status"], "created");
+}

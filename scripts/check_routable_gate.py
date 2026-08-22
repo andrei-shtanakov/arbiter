@@ -164,23 +164,75 @@ def validate_bench(entry: dict[str, Any]) -> list[str]:
     return problems
 
 
-def _clamp01(value: float) -> float:
-    return min(1.0, max(0.0, value))
+#: Единственная версия `score_semantics`, которую этот потребитель умеет читать.
+SCORE_SEMANTICS_SCHEMA_VERSION = 1
 
 
-def _effective_score(score: float, components: str) -> float:
-    """Mirror of get_benchmark_score (arbiter-mcp/src/db.rs:817-841): prefer
-    score_components.rank_score when it is a JSON number (bool is not — same
-    as serde_json Value::as_f64), else fall back to the scalar score."""
+def _semantics_permit_routing(raw: str | None) -> bool:
+    """Зеркало `Database::semantics_permit_routing` (`db.rs`).
+
+    Отсутствие блока — legacy-продюсер, прогон используется. Присутствующий
+    блок держат к его же обещанию: нечитаемый JSON, чужая `schema_version`
+    или `quality_signal != true` → прогон в маршрутизацию не идёт (inbox #82).
+    """
+    if raw is None:
+        return True
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    if not isinstance(parsed, dict):
+        return False
+    if parsed.get("schema_version") != SCORE_SEMANTICS_SCHEMA_VERSION:
+        return False
+    return parsed.get("quality_signal") is True
+
+
+def _effective_score(
+    score: float, components: str, semantics: str | None = None
+) -> float | None:
+    """Зеркало `Database::get_benchmark_score` (`arbiter-mcp/src/db.rs`).
+
+    Предпочитает `score_components.rank_score`, когда это JSON-число (bool им
+    не является — как `serde_json` `Value::as_f64`), иначе скалярный `score`.
+    `None` = прогон непригоден для маршрутизации.
+
+    Канон единицы — доля [0..1]. Значение > 1 — ошибка единицы (проценты) и
+    отвергается, а не клампится: прежний верхний кламп превращал любой процент
+    выше 1% в идеальную `1.0` (inbox #81). Нижний кламп остаётся —
+    `rank_score = pass_rate + (t - 1)/(n + 1)` законно уходит чуть ниже нуля.
+    """
+    if not _semantics_permit_routing(semantics):
+        return None
+    value = score
     try:
         parsed = json.loads(components)
     except (json.JSONDecodeError, TypeError):
-        return _clamp01(score)
+        parsed = None
     if isinstance(parsed, dict):
         rank = parsed.get("rank_score")
         if _is_number(rank):
-            return _clamp01(float(rank))
-    return _clamp01(score)
+            value = float(rank)
+    value = float(value)
+    if value != value or value in (float("inf"), float("-inf")) or value > 1.0:
+        return None
+    return max(0.0, value)
+
+
+def _fmt_effective(value: float | None) -> str:
+    return "withheld (not usable for routing)" if value is None else f"{value:.3f}"
+
+
+def _has_score_semantics(conn: sqlite3.Connection) -> bool:
+    """Колонка добавлена миграцией v3; старая БД её ещё не имеет."""
+    cols = conn.execute(
+        "SELECT name FROM pragma_table_info('benchmark_runs')"
+    ).fetchall()
+    return any(c[0] == "score_semantics" for c in cols)
+
+
+def _semantics_column(conn: sqlite3.Connection) -> str:
+    return "score_semantics" if _has_score_semantics(conn) else "NULL"
 
 
 def _parse_rfc3339(value: str) -> datetime | None:
@@ -253,7 +305,8 @@ def _verify_one(
     ok = True
     for rid in bench["run_ids"]:
         row = conn.execute(
-            "SELECT agent_id, benchmark_id, ts, score, score_components"
+            "SELECT agent_id, benchmark_id, ts, score, score_components,"
+            f" {_semantics_column(conn)}"
             " FROM benchmark_runs WHERE run_id = ?",
             (rid,),
         ).fetchone()
@@ -261,7 +314,7 @@ def _verify_one(
             print(f"VERIFY FAIL {aid}: run_id {rid!r} not found in benchmark_runs")
             ok = False
             continue
-        row_aid, row_bench, ts, score, components = row
+        row_aid, row_bench, ts, score, components, semantics = row
         if row_aid != aid or row_bench != benchmark:
             print(
                 f"VERIFY FAIL {aid}: run_id {rid!r} belongs to"
@@ -275,7 +328,18 @@ def _verify_one(
             # policy mismatch (design §4).
             raise GateInputError(f"corrupted data: run {rid!r} has invalid ts {ts!r}")
         timestamps.append(parsed_ts)
-        scores.append(_effective_score(score, components))
+        effective = _effective_score(score, components, semantics)
+        if effective is None:
+            # Заявленный evidence-прогон, который маршрутизация не использует,
+            # не подтверждает заявленный rank_score — это провал гейта, а не
+            # деталь вывода (inbox #81, #82).
+            print(
+                f"VERIFY FAIL {aid}: run_id {rid!r} is not usable for routing"
+                " (non-quality score_semantics, or a score outside [0,1])"
+            )
+            ok = False
+            continue
+        scores.append(effective)
     if not ok:
         return False
 
@@ -299,18 +363,31 @@ def _verify_one(
         )
         return False
 
-    runtime_row = conn.execute(
-        "SELECT score, score_components FROM benchmark_runs"
-        " WHERE agent_id = ? AND benchmark_id = ?"
-        " ORDER BY ts DESC, run_id DESC LIMIT 1",
-        (aid, benchmark),
-    ).fetchone()
-    runtime_score = _effective_score(runtime_row[0], runtime_row[1])
+    runtime_score = _latest_usable_score(conn, aid, benchmark)
     print(
         f"VERIFY OK {aid}: mean {mean:.3f} matches claimed {claimed} (eps {eps});"
-        f" runtime-effective (latest row): {runtime_score:.3f}"
+        f" runtime-effective (latest usable run): {_fmt_effective(runtime_score)}"
     )
     return True
+
+
+def _latest_usable_score(
+    conn: sqlite3.Connection, aid: str, benchmark: str
+) -> float | None:
+    """Что реально вернёт `get_benchmark_score`: первый пригодный прогон,
+    считая от новейшего, а не просто новейший (`db.rs`)."""
+    rows = conn.execute(
+        "SELECT score, score_components,"
+        f" {_semantics_column(conn)}"
+        " FROM benchmark_runs WHERE agent_id = ? AND benchmark_id = ?"
+        " ORDER BY ts DESC, run_id DESC",
+        (aid, benchmark),
+    ).fetchall()
+    for score, components, semantics in rows:
+        effective = _effective_score(score, components, semantics)
+        if effective is not None:
+            return effective
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -321,8 +398,8 @@ def _verify_one(
 # runtime-выбором «последнего» прогона: ORDER BY ts DESC, run_id DESC
 # (то же правило, что в _verify_one и db.rs::get_benchmark_score + tie-break).
 _RUNS_SQL = (
-    "SELECT run_id, ts, score, score_components, per_task, per_task_truncated"
-    " FROM benchmark_runs WHERE agent_id = ? AND benchmark_id = ?"
+    "SELECT run_id, ts, score, score_components, per_task, per_task_truncated,"
+    " {semantics} FROM benchmark_runs WHERE agent_id = ? AND benchmark_id = ?"
     " ORDER BY ts DESC, run_id DESC"
 )
 
@@ -330,10 +407,19 @@ _RUNS_SQL = (
 def _agent_runs(
     conn: sqlite3.Connection, aid: str, benchmark: str
 ) -> list[tuple[Any, ...]]:
-    rows = conn.execute(_RUNS_SQL, (aid, benchmark)).fetchall()
+    sql = _RUNS_SQL.format(semantics=_semantics_column(conn))
+    rows = conn.execute(sql, (aid, benchmark)).fetchall()
     if not rows:
         raise GateInputError(f"no benchmark_runs rows for ({aid}, {benchmark})")
     return rows
+
+
+def _latest_usable_run(runs: list[tuple[Any, ...]]) -> tuple[Any, ...] | None:
+    """Прогон, который выберет рантайм: первый пригодный, считая от новейшего."""
+    for run in runs:
+        if _effective_score(run[2], run[3], run[6]) is not None:
+            return run
+    return None
 
 
 def _parse_per_task(
@@ -460,16 +546,30 @@ def run_ab(db_path: Path, benchmark: str, agent_a: str, agent_b: str) -> int:
     )
     for aid, runs in ((agent_a, runs_a), (agent_b, runs_b)):
         print(f"{aid}: {len(runs)} run(s)")
-        for run_id, ts, score, components, _per_task, _truncated in runs:
-            print(
-                f"  {run_id}  {ts}  effective {_effective_score(score, components):.3f}"
-            )
+        for run_id, ts, score, components, _per_task, _truncated, semantics in runs:
+            effective = _effective_score(score, components, semantics)
+            print(f"  {run_id}  {ts}  effective {_fmt_effective(effective)}")
 
-    latest_a, latest_b = runs_a[0], runs_b[0]
-    eff_a = _effective_score(latest_a[2], latest_a[3])
-    eff_b = _effective_score(latest_b[2], latest_b[3])
-    print(f"{agent_a} effective (latest): {eff_a:.3f}")
-    print(f"{agent_b} effective (latest): {eff_b:.3f}")
+    # Сравниваем то, что реально увидит маршрутизация: последний ПРИГОДНЫЙ
+    # прогон, а не просто последний (inbox #81, #82).
+    latest_a = _latest_usable_run(runs_a)
+    latest_b = _latest_usable_run(runs_b)
+    if latest_a is None or latest_b is None:
+        missing = [
+            aid
+            for aid, latest in ((agent_a, latest_a), (agent_b, latest_b))
+            if latest is None
+        ]
+        print(
+            "INCOMPLETE COMPARISON: no run usable for routing for"
+            f" {', '.join(missing)} — nothing to compare"
+        )
+        return 0
+    eff_a = _effective_score(latest_a[2], latest_a[3], latest_a[6])
+    eff_b = _effective_score(latest_b[2], latest_b[3], latest_b[6])
+    assert eff_a is not None and eff_b is not None  # _latest_usable_run гарантирует
+    print(f"{agent_a} effective (latest usable): {eff_a:.3f}")
+    print(f"{agent_b} effective (latest usable): {eff_b:.3f}")
     print(f"delta (A - B): {eff_a - eff_b:+.3f}")
 
     tasks_a = _parse_per_task(latest_a[0], latest_a[4])

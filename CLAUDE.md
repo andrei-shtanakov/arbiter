@@ -215,9 +215,10 @@ anyhow = "1"
 7. **SQLite stores everything** — decisions, outcomes, agent stats, and benchmark runs (`benchmark_runs` table, R-06b M4). Schema in `arbiter-spec.md` section 3
 8. **Hot reload** — config and tree files are watched via `watcher.rs`; changes apply without restart
 9. **Graceful shutdown** — SIGTERM/SIGINT handlers set a flag; the server drains the current request and exits
-10. **Data retention** — `decisions` and `outcomes` older than 90 days are purged on startup. **`benchmark_runs` is deliberately NOT purged** (`purge_older_than` does not touch it): it is a reference dataset, not a log, and `get_benchmark_score` reads the latest run per `(agent_id, benchmark_id)` — an age-based purge could erase an agent's only run and silently disable its re-rank. A keep-latest-N policy is tracked as `@id:benchmark-runs-retention` (arbiter owns it; settled by inbox #78)
-11. **Crash recovery** — orphaned `running_tasks` counters are reset on startup
-12. **Catalog validation at startup** (PP-103) — `agents.toml` is cross-checked against the user-config catalog (`$ATP_CATALOG` → XDG `atp/`): missing/retired model refs (Check 5) fail startup; no catalog on the machine → warning + normal start; legacy bare ids (`[aider]`) are outside the SSOT (warning only). Startup-only — hot reload does not re-run the check
+10. **Benchmark score contract** — `score` on `report_benchmark` is a **fraction in `[0,1]`**, never a percent (out of range → `-32602` at ingest; a pre-existing out-of-range row is ignored on read, not clamped). `score_semantics` (ATP score contract v1) is optional, stored verbatim, and only `quality_signal` is read: a present block that is not `schema_version: 1` + `quality_signal: true` is stored but withheld from the routing tiebreaker, while an **absent** block is a legacy producer and stays usable. `get_benchmark_score` walks runs newest-first and returns the first usable one, so an ungraded run cannot mask a graded one. Mirrored offline by `scripts/check_routable_gate.py` — the two must not drift (inbox #81, #82)
+11. **Data retention** — `decisions` and `outcomes` older than 90 days are purged on startup. **`benchmark_runs` is deliberately NOT purged** (`purge_older_than` does not touch it): it is a reference dataset, not a log, and `get_benchmark_score` reads the latest *usable* run per `(agent_id, benchmark_id)` — an age-based purge could erase an agent's only run and silently disable its re-rank. A keep-latest-N policy is tracked as `@id:benchmark-runs-retention` (arbiter owns it; settled by inbox #78)
+12. **Crash recovery** — orphaned `running_tasks` counters are reset on startup
+13. **Catalog validation at startup** (PP-103) — `agents.toml` is cross-checked against the user-config catalog (`$ATP_CATALOG` → XDG `atp/`): missing/retired model refs (Check 5) fail startup; no catalog on the machine → warning + normal start; legacy bare ids (`[aider]`) are outside the SSOT (warning only). Startup-only — hot reload does not re-run the check
 
 ---
 
@@ -319,7 +320,7 @@ Observability tool. Returns decision counters, fallback/reject rates, and latenc
 Cost tracking tool. Returns total spend, budget limit, remaining amount, and per-agent cost breakdown.
 
 ### report_benchmark
-Benchmark ingestion tool (R-06b M4, since v0.2.0). Persists per-agent per-benchmark scores from Maestro's ATP runs into `benchmark_runs` table. Idempotent via `run_id` PRIMARY KEY — returns `{status: "created" | "duplicate"}`. Validation errors → `-32602`; DB I/O errors → `-32000`.
+Benchmark ingestion tool (R-06b M4, since v0.2.0). Persists per-agent per-benchmark scores from Maestro's ATP runs into `benchmark_runs` table. Idempotent via `run_id` PRIMARY KEY — returns `{status: "created" | "duplicate"}`. Validation errors → `-32602`; DB I/O errors → `-32000`. `score` must be a fraction in `[0,1]`; the optional `score_semantics` block gates whether the run may act as a routing tiebreaker (see architectural rule 10).
 
 The server also handles the `ping` method (returns empty object) and `notifications/initialized`.
 

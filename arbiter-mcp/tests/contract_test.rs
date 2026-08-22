@@ -79,3 +79,80 @@ fn valid_response_duplicate_passes_schema() {
         .collect();
     assert!(errors.is_empty(), "errors: {:?}", errors);
 }
+
+/// The schema could not catch the unit mismatch: `score` was an unbounded
+/// `number`, so a percent validated cleanly and only the consumer's clamp
+/// showed a fraction had ever been meant (inbox #81).
+#[test]
+fn percent_score_fails_schema() {
+    let mut payload = json!({
+        "payload_version": "1.0.0",
+        "run_id": "r1",
+        "benchmark_id": "b",
+        "agent_id": "a",
+        "ts": "2026-05-23T12:00:00Z",
+        "score": 66.67,
+        "score_components": {},
+        "duration_seconds": 1.0,
+        "per_task": [],
+        "per_task_total_count": 0,
+        "per_task_truncated": false
+    });
+    let v = validator();
+    assert!(
+        v.evaluate(&payload).iter_errors().next().is_some(),
+        "a percent must not validate as a [0,1] fraction"
+    );
+
+    payload["score"] = json!(0.6667);
+    let errors: Vec<_> = v
+        .evaluate(&payload)
+        .iter_errors()
+        .map(|e| e.error.to_string())
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "the normalized fraction validates: {errors:?}"
+    );
+}
+
+/// `score_semantics` is optional and free to grow: the block is declared, but
+/// unknown keys inside it stay valid (inbox #82).
+#[test]
+fn score_semantics_is_optional_and_forward_compatible() {
+    let payload_with = |semantics: Value| {
+        json!({
+            "payload_version": "1.0.0",
+            "run_id": "r1",
+            "benchmark_id": "b",
+            "agent_id": "a",
+            "ts": "2026-05-23T12:00:00Z",
+            "score": 0.5,
+            "score_components": {},
+            "score_semantics": semantics,
+            "duration_seconds": 1.0,
+            "per_task": [],
+            "per_task_total_count": 0,
+            "per_task_truncated": false
+        })
+    };
+    let v = validator();
+    for semantics in [
+        json!({"schema_version": 1, "kind": "completion_rate", "quality_signal": false}),
+        json!({"schema_version": 1, "quality_signal": true, "future_key": "ignored"}),
+        json!(null),
+    ] {
+        let payload = payload_with(semantics.clone());
+        let errors: Vec<_> = v
+            .evaluate(&payload)
+            .iter_errors()
+            .map(|e| e.error.to_string())
+            .collect();
+        assert!(errors.is_empty(), "{semantics} must validate: {errors:?}");
+    }
+
+    // Still typed where it is declared: quality_signal is the field consumers
+    // branch on, so a non-boolean there is a break, not a forward-compatible add.
+    let payload = payload_with(json!({"schema_version": 1, "quality_signal": "yes"}));
+    assert!(v.evaluate(&payload).iter_errors().next().is_some());
+}

@@ -315,7 +315,8 @@ CREATE TABLE benchmark_runs (
     per_task              TEXT NOT NULL,
     per_task_total_count  INTEGER NOT NULL,
     per_task_truncated    INTEGER NOT NULL,
-    inserted_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    inserted_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    score_semantics       TEXT
 )
 """
 
@@ -328,8 +329,8 @@ def make_db(tmp_path: Path, rows: list[dict[str, Any]]) -> Path:
         conn.execute(
             "INSERT INTO benchmark_runs (run_id, payload_version, benchmark_id,"
             " agent_id, ts, score, score_components, duration_seconds, per_task,"
-            " per_task_total_count, per_task_truncated)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " per_task_total_count, per_task_truncated, score_semantics)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 row["run_id"],
                 "1.0",
@@ -342,6 +343,7 @@ def make_db(tmp_path: Path, rows: list[dict[str, Any]]) -> Path:
                 "[]",
                 0,
                 0,
+                row.get("score_semantics"),
             ),
         )
     conn.commit()
@@ -434,6 +436,62 @@ class TestVerify:
             {"run_id": "r2", "score_components": '{"rank_score": 0.9}'},
         ]
         assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 0
+        assert "runtime-effective" in capsys.readouterr().out
+
+    def test_declared_run_with_ungraded_semantics_fails(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        # Заявленный evidence-прогон, который маршрутизация не использует, не
+        # подтверждает заявленный rank_score (inbox #82).
+        semantics = '{"schema_version": 1, "quality_signal": false}'
+        rows = [
+            {"run_id": "r1"},
+            {"run_id": "r2", "score_semantics": semantics},
+        ]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 1
+        assert "not usable for routing" in capsys.readouterr().out
+
+    def test_declared_run_with_percent_score_fails(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        # Процент вместо доли раньше молча становился идеальной 1.0 (inbox #81).
+        rows = [
+            {"run_id": "r1"},
+            {"run_id": "r2", "score": 90.0, "score_components": "{}"},
+        ]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 1
+        assert "not usable for routing" in capsys.readouterr().out
+
+    def test_declared_runs_with_graded_semantics_pass(self, tmp_path: Path) -> None:
+        semantics = '{"schema_version": 1, "quality_signal": true}'
+        rows = [
+            {"run_id": "r1", "score_semantics": semantics},
+            {"run_id": "r2", "score_semantics": semantics},
+        ]
+        assert verify(tmp_path, AGENT_ROUTABLE_WITH_BENCH, rows) == 0
+
+    def test_db_predating_the_score_semantics_column_still_verifies(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        # Скрипт читают и по старой БД, ещё не прошедшей миграцию v3.
+        db_path = tmp_path / "arbiter.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            BENCHMARK_RUNS_SCHEMA.replace(",\n    score_semantics       TEXT", "")
+        )
+        for rid in ("r1", "r2"):
+            conn.execute(
+                "INSERT INTO benchmark_runs (run_id, payload_version, benchmark_id,"
+                " agent_id, ts, score, score_components, duration_seconds, per_task,"
+                " per_task_total_count, per_task_truncated)"
+                " VALUES (?, '1.0', 'code-review', 'h1@m1', '2026-07-03T10:00:00Z',"
+                " 0.9, '{\"rank_score\": 0.9}', 60.0, '[]', 0, 0)",
+                (rid,),
+            )
+        conn.commit()
+        conn.close()
+        catalog = write_catalog(tmp_path, AGENT_ROUTABLE_WITH_BENCH)
+        assert main(["verify", "--db", str(db_path), "--catalog", str(catalog)]) == 0
         assert "runtime-effective" in capsys.readouterr().out
 
     def test_grandfathered_pair_warns_but_passes(

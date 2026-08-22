@@ -38,8 +38,8 @@ def make_db(tmp_path: Path, rows: list[dict[str, Any]]) -> Path:
         conn.execute(
             "INSERT INTO benchmark_runs (run_id, payload_version, benchmark_id,"
             " agent_id, ts, score, score_components, duration_seconds, per_task,"
-            " per_task_total_count, per_task_truncated)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " per_task_total_count, per_task_truncated, score_semantics)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 row["run_id"],
                 "1.0",
@@ -52,6 +52,7 @@ def make_db(tmp_path: Path, rows: list[dict[str, Any]]) -> Path:
                 per_task_json,
                 row.get("per_task_total_count", len(per_task)),
                 row.get("per_task_truncated", 0),
+                row.get("score_semantics"),
             ),
         )
     conn.commit()
@@ -96,8 +97,8 @@ class TestAbRunLevel:
     def test_effective_scores_and_delta(self, tmp_path: Path, capsys: Any) -> None:
         assert ab(tmp_path, two_agents()) == 0
         out = capsys.readouterr().out
-        assert "a@m effective (latest): 0.900" in out
-        assert "b@m effective (latest): 0.700" in out
+        assert "a@m effective (latest usable): 0.900" in out
+        assert "b@m effective (latest usable): 0.700" in out
         assert "delta (A - B): +0.200" in out
 
     def test_latest_run_tie_broken_by_run_id_desc(
@@ -122,7 +123,7 @@ class TestAbRunLevel:
             },
         ]
         assert ab(tmp_path, rows) == 0
-        assert "a@m effective (latest): 0.800" in capsys.readouterr().out
+        assert "a@m effective (latest usable): 0.800" in capsys.readouterr().out
 
     def test_latest_run_by_ts_not_insertion_order(
         self, tmp_path: Path, capsys: Any
@@ -147,7 +148,7 @@ class TestAbRunLevel:
             },
         ]
         assert ab(tmp_path, rows) == 0
-        assert "a@m effective (latest): 0.900" in capsys.readouterr().out
+        assert "a@m effective (latest usable): 0.900" in capsys.readouterr().out
 
     def test_rank_score_preferred_over_scalar(
         self, tmp_path: Path, capsys: Any
@@ -155,7 +156,7 @@ class TestAbRunLevel:
         rows = two_agents(a_components='{"rank_score": 0.9}')
         rows[0]["score"] = 0.1  # scalar must NOT win over rank_score
         assert ab(tmp_path, rows) == 0
-        assert "a@m effective (latest): 0.900" in capsys.readouterr().out
+        assert "a@m effective (latest usable): 0.900" in capsys.readouterr().out
 
     def test_run_history_lists_run_ids(self, tmp_path: Path, capsys: Any) -> None:
         assert ab(tmp_path, two_agents()) == 0
@@ -295,3 +296,72 @@ class TestAbExitCodes:
         rows = two_agents()
         rows[0]["per_task"] = "not json"
         assert ab(tmp_path, rows) == 2
+
+
+GRADED = (
+    '{"schema_version": 1, "kind": "aggregated_evaluation", "quality_signal": true}'
+)
+UNGRADED = '{"schema_version": 1, "kind": "completion_rate", "quality_signal": false}'
+
+
+class TestAbScoreUsability:
+    """Вью обязано показывать то, что увидит маршрутизация (inbox #81, #82).
+
+    Зеркало `Database::get_benchmark_score`: непригодный прогон помечается
+    `withheld`, а сравнение берёт последний ПРИГОДНЫЙ прогон, а не последний.
+    """
+
+    def test_percent_score_is_withheld_not_shown_as_perfect(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        rows = two_agents()
+        rows[0]["score"] = 66.67
+        rows[0]["score_components"] = "{}"
+        assert ab(tmp_path, rows) == 0
+        out = capsys.readouterr().out
+        assert "withheld (not usable for routing)" in out
+        assert "INCOMPLETE COMPARISON: no run usable for routing for a@m" in out
+
+    def test_ungraded_run_is_withheld(self, tmp_path: Path, capsys: Any) -> None:
+        rows = two_agents()
+        rows[0]["score_semantics"] = UNGRADED
+        assert ab(tmp_path, rows) == 0
+        out = capsys.readouterr().out
+        assert "withheld (not usable for routing)" in out
+        assert "INCOMPLETE COMPARISON: no run usable for routing for a@m" in out
+
+    def test_graded_run_is_used(self, tmp_path: Path, capsys: Any) -> None:
+        rows = two_agents()
+        rows[0]["score_semantics"] = GRADED
+        rows[1]["score_semantics"] = GRADED
+        assert ab(tmp_path, rows) == 0
+        out = capsys.readouterr().out
+        assert "a@m effective (latest usable): 0.900" in out
+        assert "delta (A - B): +0.200" in out
+
+    def test_ungraded_newest_run_does_not_mask_a_graded_older_one(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        rows = two_agents()
+        rows[0]["ts"] = "2026-07-01T10:00:00Z"
+        rows[0]["score_semantics"] = GRADED
+        rows.append(
+            {
+                "run_id": "ra-new",
+                "agent_id": "a@m",
+                "ts": "2026-07-05T10:00:00Z",
+                "score_components": '{"rank_score": 0.2}',
+                "score_semantics": UNGRADED,
+            }
+        )
+        assert ab(tmp_path, rows) == 0
+        out = capsys.readouterr().out
+        assert "a@m effective (latest usable): 0.900" in out
+
+    def test_absent_semantics_stays_usable_as_legacy(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        # Все строки, записанные до появления контракта, блока не имеют —
+        # признать их не-качественными значило бы выключить R-07 целиком.
+        assert ab(tmp_path, two_agents()) == 0
+        assert "a@m effective (latest usable): 0.900" in capsys.readouterr().out

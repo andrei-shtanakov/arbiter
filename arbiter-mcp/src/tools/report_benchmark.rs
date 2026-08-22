@@ -76,6 +76,21 @@ pub fn execute(args: &Value, db: &Database) -> Result<Value, ReportBenchmarkErro
     let score = args["score"]
         .as_f64()
         .ok_or_else(|| ReportBenchmarkError::Validation("score required".into()))?;
+    // --- score: canonical unit is a FRACTION in [0,1], never a percent ---
+    //
+    // Two producers write this field (atp-platform sends a pass rate in [0,1],
+    // Maestro used to forward ATP's `total_score` in percent), and the consumer
+    // `Database::get_benchmark_score` feeds it into a tiebreaker whose
+    // arithmetic assumes [0,1]. Before this check the percent was silently
+    // clamped, so every run above 1% arrived as an indistinguishable perfect
+    // `1.0`. Rejecting is the point: -32602 is a contract break the producer
+    // must fix by normalizing, not a transient failure to retry (inbox #81).
+    if !score.is_finite() || !(0.0..=1.0).contains(&score) {
+        return Err(ReportBenchmarkError::Validation(format!(
+            "score must be a fraction in [0,1], got {score} \
+             (a percent in [0,100]? divide by 100 before sending)"
+        )));
+    }
     // --- score_components: must be an object ---
     let score_components_val = &args["score_components"];
     if !score_components_val.is_object() {
@@ -106,6 +121,24 @@ pub fn execute(args: &Value, db: &Database) -> Result<Value, ReportBenchmarkErro
         .as_bool()
         .ok_or_else(|| ReportBenchmarkError::Validation("per_task_truncated required".into()))?
         as i64;
+    // --- score_semantics: optional; when present it must be an object ---
+    //
+    // ATP's benchmark score contract v1 (inbox #82). Stored verbatim rather
+    // than projected: unknown keys are the producer's to add, and only
+    // `quality_signal` is read back (`Database::get_benchmark_score`). Absent
+    // is legal and means "legacy producer, semantics unknown".
+    let score_semantics = match args.get("score_semantics") {
+        None | Some(Value::Null) => None,
+        Some(v) if v.is_object() => Some(
+            serde_json::to_string(v)
+                .map_err(|e| ReportBenchmarkError::Runtime(format!("serialize semantics: {e}")))?,
+        ),
+        Some(_) => {
+            return Err(ReportBenchmarkError::Validation(
+                "score_semantics must be an object when present".into(),
+            ))
+        }
+    };
 
     let input = BenchmarkRunInput {
         run_id,
@@ -121,6 +154,7 @@ pub fn execute(args: &Value, db: &Database) -> Result<Value, ReportBenchmarkErro
         per_task: &per_task,
         per_task_total_count,
         per_task_truncated,
+        score_semantics: score_semantics.as_deref(),
     };
     let status = db
         .insert_benchmark_run(&input)

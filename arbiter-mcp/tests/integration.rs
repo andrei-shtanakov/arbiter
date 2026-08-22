@@ -300,6 +300,7 @@ fn seed_benchmark(db: &Database, agent: &str, bench: &str, score: f64) {
         per_task: "[]",
         per_task_total_count: 0,
         per_task_truncated: 0,
+        score_semantics: None,
     })
     .unwrap();
 }
