@@ -48,6 +48,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_AGENTS_TOML = REPO_ROOT / "config" / "agents.toml"
 DEFAULT_CASES = REPO_ROOT / "tests" / "fixtures" / "routing-eval" / "cases.toml"
 
+# The [[case]] fixture contract this loader understands. A bump means
+# the semantics changed; a file declaring anything else is rejected
+# rather than silently mis-evaluated.
+CASES_SCHEMA_VERSION = 1
+
 # Ratchet floor used by CI ("the floor may rise, never fall for a green
 # build"). The shipped fixture set currently scores 100%; the gap is
 # headroom for benign catalog edits, mirroring agent-skills' 86% -> 80.
@@ -268,6 +273,13 @@ def load_cases(path: Path, agent_ids: set[str]) -> list[Case]:
     except tomllib.TOMLDecodeError as exc:
         raise EvalInputError(f"invalid TOML in {path}: {exc}") from exc
 
+    schema_version = data.get("schema_version")
+    if schema_version != CASES_SCHEMA_VERSION:
+        raise EvalInputError(
+            f"{path}: schema_version must be {CASES_SCHEMA_VERSION}, "
+            f"got {schema_version!r}"
+        )
+
     raw_cases = data.get("case", [])
     if not isinstance(raw_cases, list) or not raw_cases:
         raise EvalInputError(f"{path}: no [[case]] entries found")
@@ -432,12 +444,18 @@ def main(argv: list[str] | None = None) -> int:
     if failed_negatives:
         print(f"FAIL: {len(failed_negatives)} negative case(s) not owned")
         failed = True
-    if args.min_rank1 is not None and report.rank1_rate < args.min_rank1:
-        print(
-            f"FAIL: rank-1 rate {report.rank1_rate:.1f}% is below the "
-            f"ratchet floor {args.min_rank1:.1f}%"
-        )
-        failed = True
+    if args.min_rank1 is not None:
+        # A ratchet over zero positive cases is vacuous: stripping the
+        # positives from the fixture set must not turn the gate green.
+        if report.positives_total == 0:
+            print("FAIL: --min-rank1 given but the case set has no positive cases")
+            failed = True
+        elif report.rank1_rate < args.min_rank1:
+            print(
+                f"FAIL: rank-1 rate {report.rank1_rate:.1f}% is below the "
+                f"ratchet floor {args.min_rank1:.1f}%"
+            )
+            failed = True
     return 1 if failed else 0
 
 

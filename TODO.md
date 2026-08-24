@@ -53,7 +53,7 @@
 
 ### Детерминированный routing-эвал каталога (inbox #84)
 
-- [ ] agents-toml-deterministic-routing-eval @owner:github:andrei-shtanakov @id:agents-toml-deterministic-routing-eval — бесплатный CI-эвал `config/agents.toml` без LLM (inbox issue #84, from ai-repos-research): TF-IDF-матчинг тестовых запросов по описательной поверхности агентов (display_name + supports_types + supports_languages), метрика trigger rank-1 rate с ратчетом (`--min-rank1`), детектор коллизий описаний (warn/error по косинусу); фикстуры кейсов пиненым набором `[[case]]`, у негативного кейса объявлен owner-агент, обязанный обойти проверяемого. Второй независимый сигнал к benchmark-петле R-07, не замена. Образец: agent-skills `scripts/run-evals.js`
+- [x] agents-toml-deterministic-routing-eval @owner:github:andrei-shtanakov @id:agents-toml-deterministic-routing-eval — сделано (`ebd2d5e`, PR #85; follow-up по ревью Copilot: валидация `schema_version` + фейл ратчета на пустом наборе позитивов): бесплатный CI-эвал `config/agents.toml` без LLM (inbox issue #84, from ai-repos-research): TF-IDF-матчинг тестовых запросов по описательной поверхности агентов (display_name + supports_types + supports_languages), метрика trigger rank-1 rate с ратчетом (`--min-rank1`), детектор коллизий описаний (warn/error по косинусу); фикстуры кейсов пиненым набором `[[case]]`, у негативного кейса объявлен owner-агент, обязанный обойти проверяемого. Второй независимый сигнал к benchmark-петле R-07, не замена. Образец: agent-skills `scripts/run-evals.js`
 
 ### R-07: benchmark-aware routing — открытые хвосты
 
