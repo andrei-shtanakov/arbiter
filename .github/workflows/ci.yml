@@ -106,6 +106,24 @@ jobs:
       - name: Run gate
         run: python scripts/check_routable_gate.py gate --base-file /tmp/base-catalog.toml --head-file config/agents-catalog.toml
 
+  routing-eval:
+    name: Deterministic routing eval (inbox #84)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Ratchet: the floor may rise, never fall to make CI green.
+      # Keep the value in lockstep with CI_MIN_RANK1 in the script —
+      # tests/test_eval_agents_toml.py pins that the shipped fixtures
+      # clear exactly that constant.
+      - name: Run eval with rank-1 ratchet
+        run: python scripts/eval_agents_toml.py --min-rank1 80
+
   release-binary:
     name: Build arbiter-mcp release binary (${{ matrix.target_name }})
     runs-on: ${{ matrix.runner }}
