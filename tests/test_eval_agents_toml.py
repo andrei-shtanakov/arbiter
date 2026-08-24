@@ -207,6 +207,38 @@ def test_load_cases_rejects_duplicate_ids(tmp_path: Path) -> None:
         load_cases(path, {"a"})
 
 
+def test_load_cases_rejects_wrong_schema_version(tmp_path: Path) -> None:
+    path = write_cases(
+        tmp_path,
+        """
+        schema_version = 2
+
+        [[case]]
+        id = "c1"
+        kind = "positive"
+        query = "review python"
+        expect = "a"
+        """,
+    )
+    with pytest.raises(EvalInputError, match="schema_version"):
+        load_cases(path, {"a"})
+
+
+def test_load_cases_rejects_missing_schema_version(tmp_path: Path) -> None:
+    path = write_cases(
+        tmp_path,
+        """
+        [[case]]
+        id = "c1"
+        kind = "positive"
+        query = "review python"
+        expect = "a"
+        """,
+    )
+    with pytest.raises(EvalInputError, match="schema_version"):
+        load_cases(path, {"a"})
+
+
 def test_load_cases_parses_positive_and_negative(tmp_path: Path) -> None:
     path = write_cases(
         tmp_path,
@@ -346,6 +378,35 @@ def test_main_fails_ratchet_below_floor(tmp_path: Path) -> None:
         kind = "positive"
         query = "kubernetes cluster autoscaler tuning"
         expect = "aider"
+        """,
+    )
+    exit_code = main(
+        [
+            "--agents-toml",
+            str(AGENTS_TOML),
+            "--cases",
+            str(path),
+            "--min-rank1",
+            "80",
+        ]
+    )
+    assert exit_code == 1
+
+
+def test_main_fails_ratchet_with_no_positive_cases(tmp_path: Path) -> None:
+    # A ratchet over zero positive cases is vacuous — stripping the
+    # positives from the fixture set must not turn the gate green.
+    path = write_cases(
+        tmp_path,
+        """
+        schema_version = 1
+
+        [[case]]
+        id = "neg-only"
+        kind = "negative"
+        query = "audit this python module for style issues"
+        agent = "aider"
+        owner = "opencode@glm-5.1"
         """,
     )
     exit_code = main(

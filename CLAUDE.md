@@ -351,7 +351,7 @@ See `arbiter-spec.md` sections 4.2 (`route_task`), 4.3 (`report_outcome`), 4.4 (
 | Obs contract (Rust) | `cargo test` | `arbiter-mcp/tests/contract_test.rs`, `arbiter-core/tests/` | 7 tests |
 | Catalog conformance (Rust) | `cargo test -p arbiter-core --test catalog_conformance` | `arbiter-core/tests/catalog_conformance.rs` over `tests/fixtures/catalog-conformance/v1/` (pin `devtools@2533ff7`) | 7 tests / 15 expectations |
 | MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 16 tests |
-| Workspace (Python) | `uv run pytest tests/` | `tests/` | 164 tests |
+| Workspace (Python) | `uv run pytest tests/` | `tests/` | 167 tests |
 | Benchmarks (Rust) | `cargo run --bin arbiter-cli` | `arbiter-cli/src/` | 5 benchmarks |
 
 ### Performance Targets
