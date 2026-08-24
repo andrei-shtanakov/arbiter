@@ -124,7 +124,8 @@ arbiter/
 │   ├── gen_agents_scaffold.py    # Scaffold agents.toml section keys from SSOT catalog (ADR-ECO-003)
 │   ├── ab_bench_rerank.py        # A/B check for the R-07 benchmark re-rank (ARBITER_BENCH_WEIGHT)
 │   ├── ingest_benchmark_payloads.py # One-off: feed ATP payloads through report_benchmark (R-07)
-│   └── check_routable_gate.py    # ADR-ECO-003a D4: routable-flip evidence gate (CI) + verify vs benchmark_runs (local)
+│   ├── check_routable_gate.py    # ADR-ECO-003a D4: routable-flip evidence gate (CI) + verify vs benchmark_runs (local)
+│   └── eval_agents_toml.py       # inbox #84: deterministic LLM-free routing eval of agents.toml (TF-IDF rank-1 ratchet + collision detector; CI job routing-eval)
 ├── orchestrator/                 # Python MCP client
 │   ├── arbiter_client.py         # ArbiterClient class (subprocess + JSON-RPC)
 │   ├── types.py                  # Frozen dataclass DTOs for route/outcome/status responses
@@ -282,12 +283,23 @@ uv run pytest orchestrator/tests/
      один суит у обоих агентов и явно печатает это в выводе
    - Дизайн: `docs/2026-07-05-routable-gate-design.md`
 
-6. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
+6. **`scripts/eval_agents_toml.py`** — детерминированный routing-эвал каталога без LLM (inbox #84)
+   - TF-IDF-матчинг пиненых тестовых запросов (`tests/fixtures/routing-eval/cases.toml`,
+     `[[case]]`) по описательной поверхности агентов `config/agents.toml`
+     (display_name + supports_types×2 + supports_languages×2 + токены agent_id)
+   - Метрика **trigger rank-1 rate** с ратчетом `--min-rank1 N` (CI-джоб `routing-eval`,
+     floor 80, «пол поднимать можно, опускать ради зелёного CI нельзя») + детектор
+     коллизий описаний (косинус: warn ≥ 0.5, error ≥ 0.75)
+   - Негативный кейс объявляет owner-агента, обязанного строго обойти проверяемого
+     (pairwise-тест роутинга). Второй независимый сигнал к benchmark-петле R-07, не замена
+   - Stdlib-only; exit 0 = pass, 1 = eval-фейл (ратчет/негатив/error-коллизия), 2 = input error
+
+7. **`orchestrator/arbiter_client.py`** — MCP client for Python Orchestrator
    - Pure stdlib: asyncio, json, subprocess
    - No external dependencies
    - `orchestrator/types.py` holds the frozen dataclass DTOs it returns
 
-7. **`orchestrator/tests/`** — end-to-end MCP protocol tests (`test_arbiter_integration.py`, `test_e2e_smoke.py`)
+8. **`orchestrator/tests/`** — end-to-end MCP protocol tests (`test_arbiter_integration.py`, `test_e2e_smoke.py`)
    - Dependencies: pytest, pytest-asyncio
 
 ### Python Coding Standards
@@ -339,7 +351,7 @@ See `arbiter-spec.md` sections 4.2 (`route_task`), 4.3 (`report_outcome`), 4.4 (
 | Obs contract (Rust) | `cargo test` | `arbiter-mcp/tests/contract_test.rs`, `arbiter-core/tests/` | 7 tests |
 | Catalog conformance (Rust) | `cargo test -p arbiter-core --test catalog_conformance` | `arbiter-core/tests/catalog_conformance.rs` over `tests/fixtures/catalog-conformance/v1/` (pin `devtools@2533ff7`) | 7 tests / 15 expectations |
 | MCP Protocol (Python) | `pytest` | `orchestrator/tests/` | 16 tests |
-| Workspace (Python) | `uv run pytest tests/` | `tests/` | 95 tests |
+| Workspace (Python) | `uv run pytest tests/` | `tests/` | 164 tests |
 | Benchmarks (Rust) | `cargo run --bin arbiter-cli` | `arbiter-cli/src/` | 5 benchmarks |
 
 ### Performance Targets

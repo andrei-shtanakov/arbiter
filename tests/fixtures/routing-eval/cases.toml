@@ -1,0 +1,99 @@
+# Pinned case set for the deterministic routing eval of config/agents.toml
+# (inbox #84, scripts/eval_agents_toml.py). Run on every PR by the CI job
+# `routing-eval` with the rank-1 ratchet.
+#
+# Semantics:
+#   kind = "positive"  -> `expect` must be rank-1 with a positive score.
+#   kind = "negative"  -> `owner` must strictly outrank `agent` (a pairwise
+#                         routing check; `agent` is the one being fenced out).
+#
+# Queries are natural task phrasings; scripts/eval_agents_toml.py normalizes
+# them to the catalog vocabulary (bug/fix -> bugfix, document -> docs, ...).
+# When editing: expectations are pinned against the *shipped* agents.toml —
+# a catalog edit that changes a ranking must either be intended (update the
+# case) or is exactly the regression this gate exists to catch.
+
+schema_version = 1
+
+# --- positive: each routable capability niche has an owner ----------------
+
+[[case]]
+id = "review-python-opencode"
+kind = "positive"
+query = "review this python pull request for correctness"
+expect = "opencode@glm-5.1"
+
+[[case]]
+id = "research-rust-claude"
+kind = "positive"
+query = "research and document this rust library"
+expect = "claude_code@claude-sonnet-4-6"
+
+[[case]]
+id = "docs-python-claude"
+kind = "positive"
+query = "add docs for the python api"
+expect = "claude_code@claude-sonnet-4-6"
+
+[[case]]
+id = "feature-rust-claude"
+kind = "positive"
+query = "implement a new feature in rust"
+expect = "claude_code@claude-sonnet-4-6"
+
+[[case]]
+id = "tests-go-codex"
+kind = "positive"
+query = "write unit tests for this go service"
+expect = "codex_cli@gpt-5.5"
+
+[[case]]
+id = "review-go-codex"
+kind = "positive"
+query = "review the go http handler"
+expect = "codex_cli@gpt-5.5"
+
+[[case]]
+id = "refactor-typescript-codex"
+kind = "positive"
+query = "refactor the typescript module"
+expect = "codex_cli@gpt-5.5"
+
+[[case]]
+id = "bugfix-javascript-aider"
+kind = "positive"
+query = "fix a bug in this javascript app"
+expect = "aider"
+
+[[case]]
+id = "bugfix-python-aider"
+kind = "positive"
+query = "fix the bug in the python parser"
+expect = "aider"
+
+# --- negative: the declared owner must beat the fenced-out agent ----------
+
+# aider does not support "review"; a python review must still be won by
+# the review specialist, not leak to aider on the "python" token alone.
+[[case]]
+id = "neg-aider-python-review"
+kind = "negative"
+query = "audit this python module for style issues"
+agent = "aider"
+owner = "opencode@glm-5.1"
+
+# opencode is review-only/python-only; test work must stay with codex.
+[[case]]
+id = "neg-opencode-typescript-tests"
+kind = "negative"
+query = "test the typescript build pipeline"
+agent = "opencode@glm-5.1"
+owner = "codex_cli@gpt-5.5"
+
+# codex does not support "research"; investigation tasks belong to claude.
+[[case]]
+id = "neg-codex-rust-research"
+kind = "negative"
+query = "investigate flaky behaviour in the rust scheduler"
+agent = "codex_cli@gpt-5.5"
+owner = "claude_code@claude-sonnet-4-6"
