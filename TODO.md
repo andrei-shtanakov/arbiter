@@ -121,3 +121,21 @@ retention.~~ **Приписка была неверна дважды** (разо
 - ❌ GIN-индекс по `benchmark_runs.per_task` (бывш. maestro `@id:r-07-prereq-gin-index`) — GIN/`jsonb` это PostgreSQL, у нас SQLite и плана миграции нет. Триггер («R-07 начинает писать SQL-фильтры по `per_task`») **не сработал**: `per_task` нигде не фильтруется в SQL — колонка читается целиком и парсится в приложении (`check_routable_gate.py`), а единственный горячий запрос `(agent_id, benchmark_id, ts DESC)` уже покрыт `idx_benchmark_runs_agent_bench_ts`. Появится реальный SQL-спрос — ответ в SQLite это generated column + индекс либо дочерняя таблица, но не GIN
 - ❌ Нормализация `benchmark_task_results` (бывш. maestro `@id:r-07-prereq-normalize`) — тот же триггер и то же состояние, что у GIN: формального запроса к `per_task` нет. Решается вместе с ним, если спрос появится
 - ❌ Discovery моделей внутри arbiter — владелец devtools (ADR-ECO-003a D5); роутинг не должен опрашивать провайдеров
+
+## codex-review: потребитель кита steward (принят 2026-08-25)
+
+- [ ] PR-B: caller-workflow гейта codex-review (по образцу пилота spec-runner:
+      механика из base, потолки, generated-декларация, экономный триггер по
+      драфту/лейблу) + лейбл `codex-review` + секрет `CODEX_REVIEW_API_KEY`
+      (кладёт владелец в настройки репо) — после мержа PR-A
+      @owner:github:andrei-shtanakov @id:codex-review-caller
+
+  PR-A (этот): кит завендорен — `scripts/review/` (5 POSIX-скриптов) +
+  `.github/codex/review-schema.json`, PIN @ steward `e4c43cc`;
+  copy-integrity — джоба `review-kit-integrity` в ci.yml, чекер из base
+  (на первом PR — бутстрап-notice); upstream-drift — вахта
+  `review-kit-drift.yml` (не PR-гейт); `review-prompt.md` — данные репо,
+  вне integrity; generated-декларация — `.gitattributes`. Ре-вендор —
+  рецепт в комментарии PIN; дисциплина раундов гейта — спека steward §13;
+  умолчание итераций — экономный цикл (local.sh → драфт → один платный
+  прогон, см. Git workflow в CLAUDE.md).
