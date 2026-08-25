@@ -29,7 +29,7 @@
 
 ### Shadow routing — Phase 2
 
-- [ ] Решить по накопленным shadow-данным, нужен ли Phase 2 @owner:github:andrei-shtanakov @trigger:"eval_shadow.py на накопленном shadow_json показывает, что петля используется" @id:shadow-phase-2-decision — кандидаты (все отложены сознательно): hot-reload shadow-дерева через `watcher.rs`, `shadow_match_rate` в `get_metrics`, obs-контрактное событие для shadow-решений, несколько одновременных кандидат-политик, canary-graduation победившей
+- [ ] Решить по накопленным shadow-данным, нужен ли Phase 2 @owner:github:andrei-shtanakov @trigger:"eval_shadow.py на накопленном shadow_json показывает, что петля используется" @id:shadow-phase-2-decision — кандидаты (все отложены сознательно): hot-reload shadow-дерева через `watcher.rs`, `shadow_match_rate` в `get_metrics`, obs-контрактное событие для shadow-решений, несколько одновременных кандидат-политик, canary-graduation победившей @epic:eco.routing
   - Phase 1 закрыт: `09b7b88` (#53) — `shadow_json` в `decisions`, offline `eval_shadow.py`
   - Источник списка: `20260714shadowroutingphase1plan.md` §«Phase 2 candidates»
   - Гоча при ручной проверке: сырой `route_task` без authority-контекста ведёт себя иначе, чем вызов из Maestro
@@ -44,7 +44,7 @@
 ### `benchmark_runs`: владение и предпосылки (решено по inbox #78)
 
 - [x] Решить владельца трёх пунктов про `benchmark_runs` (GIN-индекс, нормализация, TTL/retention) @owner:github:andrei-shtanakov @id:benchmark-runs-prereqs-ownership — решено (inbox issue #78, PR #79): **владелец — arbiter**, таблица наша и единственная релевантная. Maestro удаляет три своих watch-пункта (`r-07-prereq-gin-index`, `r-07-prereq-normalize`, `r-07-prereq-retention`); формулировки GIN/`jsonb` под SQLite неприменимы и переписаны ниже
-- [ ] Retention для `benchmark_runs`: политика **«последние N прогонов на пару (agent_id, benchmark_id)»**, не «старше X дней» @owner:github:andrei-shtanakov @trigger:"benchmark_runs > 10k строк ИЛИ файл БД заметно растёт из-за per_task" @id:benchmark-runs-retention — сейчас таблица не чистится ничем: `purge_older_than` покрывает только `outcomes`/`decisions`. Возрастной purge здесь был бы **активно вреден**: `get_benchmark_score` берёт последний **пригодный** прогон по паре, поэтому удаление по возрасту способно стереть единственный пригодный прогон агента и молча выключить re-rank для него. Уточнение по итогам #82: пригодный прогон может лежать за сколь угодно длинным хвостом удержанных (не-качественных), поэтому политика обязана считать **пригодные прогоны**, а не строки. Не срочно: в таблице ~16 строк (13 свипа + 3 `req-extraction`)
+- [ ] Retention для `benchmark_runs`: политика **«последние N прогонов на пару (agent_id, benchmark_id)»**, не «старше X дней» @owner:github:andrei-shtanakov @trigger:"benchmark_runs > 10k строк ИЛИ файл БД заметно растёт из-за per_task" @id:benchmark-runs-retention — сейчас таблица не чистится ничем: `purge_older_than` покрывает только `outcomes`/`decisions`. Возрастной purge здесь был бы **активно вреден**: `get_benchmark_score` берёт последний **пригодный** прогон по паре, поэтому удаление по возрасту способно стереть единственный пригодный прогон агента и молча выключить re-rank для него. Уточнение по итогам #82: пригодный прогон может лежать за сколь угодно длинным хвостом удержанных (не-качественных), поэтому политика обязана считать **пригодные прогоны**, а не строки. Не срочно: в таблице ~16 строк (13 свипа + 3 `req-extraction`) @epic:eco.routing
 
 ### Контракт `report_benchmark-v1`: единицы и семантика скора (inbox #81, #82)
 
@@ -61,7 +61,7 @@
 клампованная дельта меняет исход только на почти-равных кандидатах и **не** переворачивает
 доминантный (1.0) лист дерева.
 
-- [ ] Развилка по силе связи: на реальном ре-свипе Δ`rank_score` ≈ 0.08 при разумном весе ≈ 0.15 не переворачивает доминантный лист → выбрать (а) более сильную связь `rank_score` с confidence или (б) переобучение дерева на мягкие листья @owner:github:andrei-shtanakov @id:r-07-link-strength-decision
+- [ ] Развилка по силе связи: на реальном ре-свипе Δ`rank_score` ≈ 0.08 при разумном весе ≈ 0.15 не переворачивает доминантный лист → выбрать (а) более сильную связь `rank_score` с confidence или (б) переобучение дерева на мягкие листья @owner:github:andrei-shtanakov @id:r-07-link-strength-decision @epic:eco.routing
   - Разблокирована: crossover-гейт закрыт 2026-08-16 анализом (`docs/2026-08-16-r07-crossover-gate-analysis.md`)
   - Аргумент из данных бенчмарка №2: усиление веса ничего не даёт на суитах-ничьих — разброс есть только там, где суит реально дифференцирует агентов; сильная форма crossover (переворот ранжирования) на сатурированном суите ненаблюдаема и едет сюда контекстом
 
