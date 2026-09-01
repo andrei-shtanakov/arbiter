@@ -124,11 +124,11 @@ retention.~~ **Приписка была неверна дважды** (разо
 
 ## codex-review: потребитель кита steward (принят 2026-08-25)
 
-- [x] PR-B: caller-workflow гейта codex-review — влит #90 (`f9e2910`, 2026-08-25, пустой вердикт с первого прогона) (по образцу пилота spec-runner:
-      механика из base, потолки, generated-декларация, экономный триггер по
-      драфту/лейблу) + лейбл `codex-review` + секрет `CODEX_REVIEW_API_KEY`
-      (кладёт владелец в настройки репо) — после мержа PR-A
-      @owner:github:andrei-shtanakov @id:codex-review-caller
+- [x] PR-B: caller-workflow гейта codex-review — влит #90 (`f9e2910`, 2026-08-25, пустой вердикт с первого прогона) @owner:github:andrei-shtanakov @id:codex-review-caller
+      По образцу пилота spec-runner: механика из base, потолки,
+      generated-декларация, экономный триггер по драфту/лейблу; плюс лейбл
+      `codex-review` и секрет `CODEX_REVIEW_API_KEY` (кладёт владелец в
+      настройки репо) — после мержа PR-A.
 
   PR-A (этот): кит завендорен — `scripts/review/` (5 POSIX-скриптов) +
   `.github/codex/review-schema.json`, PIN @ steward `e4c43cc`;
