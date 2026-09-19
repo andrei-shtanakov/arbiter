@@ -61,11 +61,17 @@ jobs:
               } >> "$GITHUB_STEP_SUMMARY"
             fi
           }
+          # Список обязан совпадать с инвентарём checksum.sh: вахта,
+          # перечисляющая не все члены, молча объявляет копию чистой по
+          # неосмотренному файлу. Так и вышло с harness-claude — он приехал
+          # с #106, а сюда его не дописали, и адаптер не сверялся ни разу.
           for rel in scripts/review/build-prompt.sh \
                      scripts/review/collect-context.sh \
                      scripts/review/apply-threshold.sh \
                      scripts/review/local.sh \
                      scripts/review/checksum.sh \
+                     scripts/review/harness-claude \
+                     scripts/review/prose-paths.env \
                      .github/codex/review-schema.json; do
             compare "ws/arbiter/$rel" "ws/steward/$rel"
           done
