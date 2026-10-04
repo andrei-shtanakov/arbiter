@@ -2,6 +2,8 @@
 # Settings for automatic task execution via Claude CLI
 
 executor:
+  # политика флота (devtools contracts/fleet-config-policy/v1, 2026-10-04): попытка, правящая файлы верификации, проваливается
+  harness_guard: strict
   # Retry policy
   max_retries: 3                    # Max attempts per task
   retry_delay_seconds: 5            # Delay between attempts
